@@ -401,6 +401,55 @@ class Coordinator:
         return report
 
 
+# --- Step 6: final acceptance test + failure-tracing diagnostic ---
+#
+# Goal: verify the FINAL delegated output (report["sections"], with actual
+# findings) covers every required category - not just whether decomposition
+# happened to mention the word. Two-stage check, deliberately, so a failure
+# can be traced to the right part of the pipeline - this mirrors the exam's
+# diagnostic: an incomplete report is a decomposition bug if the category
+# was never assigned, or a delegation/context-passing bug if it was assigned
+# but the subagent came back empty.
+
+
+def verify_final_coverage(report: dict[str, Any], required_categories: list[str]) -> bool:
+    subtopics_lower = [subtopic.lower() for subtopic in report["subtopics"]]
+
+    # Best finding count per subtopic (case-insensitive) - mirrors how
+    # evaluate_coverage aggregates across possibly-multiple attempts.
+    finding_counts: dict[str, int] = {}
+    for section in report["sections"]:
+        subtopic_lower = section.get("subtopic", "").lower()
+        count = len(section.get("findings", []))
+        finding_counts[subtopic_lower] = max(finding_counts.get(subtopic_lower, 0), count)
+
+    all_covered = True
+    for category in required_categories:
+        matching_subtopics = [st for st in subtopics_lower if category in st]
+
+        if not matching_subtopics:
+            logger.warning(
+                f"Missing '{category}': not present in decomposition at all - "
+                f"the fix is in decompose(), not delegation."
+            )
+            all_covered = False
+            continue
+
+        has_substantive_findings = any(
+            finding_counts.get(st, 0) > 0 for st in matching_subtopics
+        )
+        if not has_substantive_findings:
+            logger.warning(
+                f"Missing '{category}': decomposition included "
+                f"{matching_subtopics}, but no section for it has any "
+                f"findings - the fix is in delegation/context passing, not "
+                f"decomposition."
+            )
+            all_covered = False
+
+    return all_covered
+
+
 async def main():
     logger.info("=== Execution started ===")
     start_time = time.perf_counter()
@@ -441,16 +490,20 @@ async def main():
     logger.info(f"Demo final coverage:\n{json.dumps(refined_coverage, indent=2)}")
 
     logger.info("")
-    logger.info("=== Step 4/5: full pipeline - decompose, delegate, aggregate, refine ===")
+    logger.info("=== Step 6: full pipeline against the required-category acceptance test ===")
     report = await coordinator.research("renewable energy technologies")
     logger.info(f"Report:\n{json.dumps(report, indent=2, default=str)}")
 
     required_categories = ["solar", "wind", "geothermal", "tidal", "biomass", "fusion"]
-    subtopics_lower = " ".join(report["subtopics"]).lower()
-    missing = [cat for cat in required_categories if cat not in subtopics_lower]
+    full_coverage = verify_final_coverage(report, required_categories)
     logger.info(
-        "Coverage check: Full coverage" if not missing
-        else f"Coverage check: Missing {missing}"
+        f"Coverage evaluation completeness: {report['coverage']['completeness']:.0%} "
+        f"({len(report['coverage']['gaps'])} gap(s), {len(report['coverage']['partial'])} partial)"
+    )
+    logger.info(
+        "Full coverage - all six required categories present with substantive findings"
+        if full_coverage
+        else "Coverage check FAILED - see warnings above for the traced failure stage"
     )
 
     elapsed_seconds = time.perf_counter() - start_time
