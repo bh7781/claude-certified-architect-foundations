@@ -9,6 +9,7 @@ files.
 
 import sys
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from anthropic import Anthropic
@@ -68,14 +69,22 @@ def print_registered_tools():
 
 def run_agent_loop(user_prompt: str):
     # `messages` is the running conversation history we send on every call.
-    messages = [{"role": "user", "content": user_prompt}]
+    # Typed as `dict[str, Any]` because "content" can be either a plain
+    # string (a normal text turn) or a list of blocks (a tool_use /
+    # tool_result turn) - both are valid, so we tell the type checker that
+    # up front instead of letting it assume "content" is always a string.
+    messages: list[dict[str, Any]] = [{"role": "user", "content": user_prompt}]
 
     while True:
+        # type: ignore below - the SDK expects very specific TypedDict
+        # shapes for `tools` and `messages`, but plain dicts in exactly
+        # this shape are what the Anthropic API docs themselves use, so
+        # this is a type-checker nitpick rather than a real bug.
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1024,
-            tools=TOOLS,
-            messages=messages,
+            tools=TOOLS,  # type: ignore[arg-type]
+            messages=messages,  # type: ignore[arg-type]
         )
 
         logger.info(f"stop_reason: {response.stop_reason}")
