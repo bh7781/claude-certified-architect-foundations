@@ -40,6 +40,12 @@ COORDINATOR_MODEL = "claude-haiku-4-5-20251001"
 # finding technically isn't a gap, but isn't substantive coverage either.
 MIN_FINDINGS_FOR_SUBSTANTIVE_COVERAGE = 2
 
+# Iterative refinement (Step 5): keep re-delegating gaps/partial subtopics
+# until overall completeness clears this threshold, or until the iteration
+# cap is hit - the cap is what stops an unresolvable gap from looping forever.
+COMPLETENESS_THRESHOLD = 0.9
+MAX_REFINEMENT_ITERATIONS = 3
+
 
 # --- Step 1: coordinator hub + subagent definitions ---
 #
@@ -248,13 +254,19 @@ class Coordinator:
         "partial" - technically not empty, but not enough to trust either,
         so it should still be a candidate for re-delegation in Step 5.
         """
-        # Map each subtopic to how many findings its section actually has.
+        # Map each subtopic to the BEST finding count across all sections for
+        # it. Sections isn't guaranteed to have one entry per subtopic -
+        # Step 5's refinement loop appends a new section each time it
+        # re-delegates a gap, so a subtopic can have multiple attempts on
+        # record. Taking the max (not the first/last) means an earlier good
+        # attempt is never lost if a later retry happens to do worse.
         # "subtopic" is a key we force onto every section ourselves (see
         # delegate_to_subagent), so this lookup is exact, not a fuzzy match.
-        finding_counts = {
-            section.get("subtopic"): len(section.get("findings", []))
-            for section in sections
-        }
+        finding_counts: dict[str, int] = {}
+        for section in sections:
+            subtopic = section.get("subtopic", "")
+            count = len(section.get("findings", []))
+            finding_counts[subtopic] = max(finding_counts.get(subtopic, 0), count)
 
         well_covered, partial, gaps = [], [], []
         for subtopic in subtopics:
@@ -274,11 +286,89 @@ class Coordinator:
             "completeness": completeness,
         }
 
+    @staticmethod
+    def _summarize_existing_section(subtopic: str, sections: list[dict[str, Any]]) -> str:
+        """
+        Build the "prior findings" context (Step 3) for a re-delegation
+        (Step 5). A subagent retrying a gap has no memory of its own earlier
+        attempt - without this, it might repeat the exact same shallow
+        search, or waste effort re-discovering a fact it already found.
+        """
+        existing_findings = [
+            finding
+            for section in sections
+            if section.get("subtopic") == subtopic
+            for finding in section.get("findings", [])
+        ]
+        if not existing_findings:
+            return (
+                "A previous research attempt on this exact subtopic returned "
+                "ZERO findings. Try a different angle or more specific query."
+            )
+        facts = "; ".join(
+            finding.get("fact", "") for finding in existing_findings if isinstance(finding, dict)
+        )
+        return (
+            f"A previous attempt found only {len(existing_findings)} finding(s), "
+            f"not enough for substantive coverage: {facts}. Find NEW, "
+            f"additional, substantive facts beyond these - don't just repeat them."
+        )
+
+    async def refine_coverage(
+        self, topic: str, subtopics: list[str], sections: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], int]:
+        """
+        The loop that makes this a coordinator rather than a one-shot
+        dispatcher: keep checking coverage and re-delegating into whatever
+        is missing or thin, until completeness clears the threshold or the
+        iteration cap is hit. Each iteration targets ONLY the gaps/partial
+        subtopics from the last check - already-well-covered subtopics are
+        never re-delegated, so cost scales with what's actually missing.
+        """
+        coverage = self.evaluate_coverage(subtopics, sections)
+        iteration = 0
+
+        while coverage["completeness"] < COMPLETENESS_THRESHOLD and iteration < MAX_REFINEMENT_ITERATIONS:
+            iteration += 1
+            targets = coverage["gaps"] + coverage["partial"]
+            logger.info(
+                f"Refinement iteration {iteration}: completeness "
+                f"{coverage['completeness']:.0%} < {COMPLETENESS_THRESHOLD:.0%} threshold - "
+                f"re-delegating {len(targets)} subtopic(s): {targets}"
+            )
+
+            redelegations = [
+                self.delegate_to_subagent(
+                    self.subagents[i % len(self.subagents)],
+                    subtopic,
+                    topic,
+                    prior_findings=self._summarize_existing_section(subtopic, sections),
+                )
+                for i, subtopic in enumerate(targets)
+            ]
+            new_sections = list(await asyncio.gather(*redelegations))
+            # Append rather than replace - evaluate_coverage takes the best
+            # finding count per subtopic across ALL recorded attempts, so an
+            # earlier partial result is never silently discarded.
+            sections = sections + new_sections
+
+            coverage = self.evaluate_coverage(subtopics, sections)
+            logger.info(f"Coverage after iteration {iteration}:\n{json.dumps(coverage, indent=2)}")
+
+        if coverage["completeness"] < COMPLETENESS_THRESHOLD:
+            logger.warning(
+                f"Refinement stopped after {iteration} iteration(s) - completeness "
+                f"{coverage['completeness']:.0%} still below the "
+                f"{COMPLETENESS_THRESHOLD:.0%} threshold. Remaining gaps: {coverage['gaps']}"
+            )
+
+        return sections, coverage, iteration
+
     async def research(self, topic: str) -> dict[str, Any]:
         """
-        Run a topic through the coordinator's pipeline: decompose, delegate
-        to a subagent per subtopic, then aggregate + evaluate coverage.
-        Iterative refinement (re-delegating into any gaps found) is Step 5.
+        Run a topic through the coordinator's full pipeline: decompose,
+        delegate to a subagent per subtopic, then aggregate, evaluate
+        coverage, and iteratively refine any gaps found.
         """
         logger.info(f"=== Coordinator starting research on: '{topic}' ===")
 
@@ -297,15 +387,16 @@ class Coordinator:
         logger.info(f"Delegating {len(delegations)} subtopic(s) across {len(self.subagents)} subagent(s)")
         sections = list(await asyncio.gather(*delegations))
 
-        # --- Step 4: aggregate + evaluate coverage ---
-        coverage = self.evaluate_coverage(subtopics, sections)
-        logger.info(f"Coverage assessment:\n{json.dumps(coverage, indent=2)}")
+        # --- Step 5: aggregate, evaluate coverage, and refine any gaps ---
+        sections, coverage, refinement_iterations = await self.refine_coverage(topic, subtopics, sections)
+        logger.info(f"Refinement used {refinement_iterations} iteration(s)")
 
         report = {
             "topic": topic,
             "subtopics": subtopics,
             "sections": sections,
             "coverage": coverage,
+            "refinement_iterations": refinement_iterations,
         }
         return report
 
@@ -314,8 +405,43 @@ async def main():
     logger.info("=== Execution started ===")
     start_time = time.perf_counter()
 
-    logger.info("=== Step 4: full delegation + coverage aggregation ===")
     coordinator = Coordinator()
+
+    # --- Step 5 demo: force a coverage gap so the refinement loop actually
+    # has something to do. The real pipeline below reached 100% completeness
+    # on its first pass in earlier runs, so this proves the loop's mechanics
+    # (targeted re-delegation, threshold check, iteration cap) independently
+    # of whether the initial delegation happens to need it.
+    logger.info("=== Step 5 demo: refine_coverage() against a manufactured gap ===")
+    demo_topic = "renewable energy technologies"
+    demo_subtopics = ["Nuclear Fusion Energy", "Solar Photovoltaic Technology"]
+    demo_sections = [
+        {"agent": "web_search_agent", "subtopic": "Nuclear Fusion Energy", "findings": []},
+        {
+            "agent": "doc_analysis_agent",
+            "subtopic": "Solar Photovoltaic Technology",
+            "findings": [
+                {
+                    "fact": "Crystalline silicon panels dominate the current solar market.",
+                    "source_url": "https://example.com/solar",
+                    "confidence": "high",
+                },
+                {
+                    "fact": "Panel efficiency has climbed steadily over the past decade.",
+                    "source_url": "https://example.com/solar-efficiency",
+                    "confidence": "medium",
+                },
+            ],
+        },
+    ]
+    refined_sections, refined_coverage, iterations_used = await coordinator.refine_coverage(
+        demo_topic, demo_subtopics, demo_sections
+    )
+    logger.info(f"Demo refinement used {iterations_used} iteration(s)")
+    logger.info(f"Demo final coverage:\n{json.dumps(refined_coverage, indent=2)}")
+
+    logger.info("")
+    logger.info("=== Step 4/5: full pipeline - decompose, delegate, aggregate, refine ===")
     report = await coordinator.research("renewable energy technologies")
     logger.info(f"Report:\n{json.dumps(report, indent=2, default=str)}")
 
