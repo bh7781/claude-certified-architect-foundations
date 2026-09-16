@@ -7,17 +7,22 @@ it's clear what was added when, without needing separate step1.py, step2.py
 files.
 """
 
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 from anthropic import Anthropic
 
-from tools import TOOLS
+from tools import TOOLS, TOOL_IMPLEMENTATIONS
 
-# .env lives at the workspace root (two levels up from this file), and is
-# shared across all exercises rather than duplicated per-exercise.
+# .env and utils/ both live at the workspace root (two levels up from this
+# file), and are shared across all exercises rather than duplicated per-exercise.
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(WORKSPACE_ROOT / ".env")
+sys.path.insert(0, str(WORKSPACE_ROOT))
+
+from utils.logger import logger
+from utils.message_parser import format_message
 
 
 # --- Step 1: Claude API client + tool definitions ---
@@ -34,12 +39,12 @@ client = Anthropic()
 
 def print_registered_tools():
     """Print each tool's definition so we can visually confirm it's well-formed."""
-    print(f"Registered {len(TOOLS)} tool(s):\n")
+    logger.info(f"Registered {len(TOOLS)} tool(s):\n")
     for tool in TOOLS:
-        print(f"- name: {tool['name']}")
-        print(f"  description: {tool['description']}")
-        print(f"  input_schema: {tool['input_schema']}")
-        print()
+        logger.info(f"- name: {tool['name']}")
+        logger.info(f"  description: {tool['description']}")
+        logger.info(f"  input_schema: {tool['input_schema']}")
+        logger.info("")
 
 
 # --- Step 2: the agentic loop skeleton ---
@@ -50,10 +55,15 @@ def print_registered_tools():
 # done ("end_turn") or wants to call a tool ("tool_use"). Checking content
 # types instead is unreliable, because a single response can mix content
 # blocks (e.g. some text AND a tool_use block together).
+
+
+# --- Step 3: handle stop_reason == "tool_use" by actually running the tool ---
 #
-# We're not executing tools yet (that's the next step) — for now we just
-# detect that Claude asked for one and stop, so we don't loop forever
-# re-sending the same request without ever giving Claude a tool result.
+# Goal: when Claude asks for a tool, find the tool_use content block (it has
+# `name` and `input`), run the matching Python function, and send the result
+# back so Claude can carry on. The result goes back as a new "user" message
+# containing a `tool_result` block, matched to the request via `tool_use_id`.
+# Then we loop again so Claude can respond using that result.
 
 
 def run_agent_loop(user_prompt: str):
@@ -68,36 +78,66 @@ def run_agent_loop(user_prompt: str):
             messages=messages,
         )
 
-        print(f"stop_reason: {response.stop_reason}")
+        logger.info(f"stop_reason: {response.stop_reason}")
 
         if response.stop_reason == "end_turn":
             # Claude finished its answer without needing any tool. Done.
             break
 
         if response.stop_reason == "tool_use":
-            # Claude wants to call one of our tools. Actually running the
-            # tool and sending the result back is what the next step adds.
-            print("Claude requested a tool call - handling this is the next step, stopping here for now.")
-            break
+            # Find the tool_use block - it tells us which tool to call
+            # (`name`) and with what arguments (`input`).
+            tool_use_block = next(
+                block for block in response.content if block.type == "tool_use"
+            )
+            logger.info(f"Claude wants to call tool '{tool_use_block.name}' with input {tool_use_block.input}")
+
+            # Look up and run the matching Python function from tools.py.
+            tool_function = TOOL_IMPLEMENTATIONS[tool_use_block.name]
+            tool_result = tool_function(**tool_use_block.input)
+            logger.info(f"Tool result: {tool_result}")
+
+            # Add Claude's tool_use turn to the conversation history...
+            messages.append({"role": "assistant", "content": response.content})
+
+            # ...then add our tool result as the next "user" turn. The
+            # tool_use_id ties this result back to the specific tool call
+            # Claude made, which matters when there's more than one.
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_block.id,
+                            "content": str(tool_result),
+                        }
+                    ],
+                }
+            )
+
+            continue  # loop again - Claude now responds using the tool result
 
         # Anything else (e.g. max_tokens, stop_sequence) — stop and surface it.
-        print(f"Unhandled stop_reason: {response.stop_reason}")
+        logger.warning(f"Unhandled stop_reason: {response.stop_reason}")
         break
 
     return response
 
 
 if __name__ == "__main__":
-    print("=== Step 1: Register tools so Claude knows they're available ===")
+    logger.info("=== Step 1: Register tools so Claude knows they're available ===")
     print_registered_tools()
 
-    print("=== Step 2: Run the agentic loop and branch on stop_reason ===")
+    logger.info("=== Step 2: Run the agentic loop and branch on stop_reason ===")
 
-    print("--- Prompt that should end in a plain answer (end_turn) ---")
-    plain_response = run_agent_loop("what is the capital of France?")
-    print(plain_response.content)
+    logger.info("--- Prompt that should end in a plain answer (end_turn) ---")
+    plain_response = run_agent_loop("what is the capital of France? (answer in 1 word)")
+    # format_message() only pretty-prints actual Message responses - it
+    # returns None for anything else, so we fall back to logging as-is.
+    logger.info(format_message(plain_response) or plain_response)
 
-    print()
-    print("--- Prompt that should trigger a tool call (tool_use) ---")
+    logger.info("")
+    logger.info("--- Prompt that should trigger a tool call (tool_use) and use the result ---")
     tool_response = run_agent_loop("47 * 12")
-    print(tool_response.content)
+    logger.info(format_message(tool_response) or tool_response)
