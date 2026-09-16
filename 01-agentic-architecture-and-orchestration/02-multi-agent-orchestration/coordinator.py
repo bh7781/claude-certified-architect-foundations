@@ -35,6 +35,11 @@ client = AsyncAnthropic()
 # refinement). Subagents get their own model choice in a later step.
 COORDINATOR_MODEL = "claude-haiku-4-5-20251001"
 
+# Coverage threshold (Step 4): a section needs at least this many findings
+# to count as "well-covered" rather than merely "partial" - a single thin
+# finding technically isn't a gap, but isn't substantive coverage either.
+MIN_FINDINGS_FOR_SUBSTANTIVE_COVERAGE = 2
+
 
 # --- Step 1: coordinator hub + subagent definitions ---
 #
@@ -223,39 +228,84 @@ class Coordinator:
                 f"Subagent '{agent['name']}' returned non-JSON output for "
                 f"subtopic '{subtopic}' - keeping raw text instead."
             )
-            parsed = {"subtopic": subtopic, "findings": [], "raw_text": raw_text}
+            parsed = {"findings": [], "raw_text": raw_text}
 
+        # Force "subtopic" to the value WE assigned rather than trusting the
+        # subagent's echoed copy - coverage evaluation (Step 4) matches
+        # sections back to subtopics by this field, so it needs to be exact.
+        parsed["subtopic"] = subtopic
         return {"agent": agent["name"], **parsed}
+
+    def evaluate_coverage(
+        self, subtopics: list[str], sections: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """
+        Compare what was ASSIGNED (subtopics) against what actually came
+        back (sections) - this is the coordinator's job, not something a
+        subagent can do for itself, since only the hub sees both sides.
+        Three buckets instead of a binary covered/gap: a subtopic with zero
+        findings is a full gap, but one with only a single thin finding is
+        "partial" - technically not empty, but not enough to trust either,
+        so it should still be a candidate for re-delegation in Step 5.
+        """
+        # Map each subtopic to how many findings its section actually has.
+        # "subtopic" is a key we force onto every section ourselves (see
+        # delegate_to_subagent), so this lookup is exact, not a fuzzy match.
+        finding_counts = {
+            section.get("subtopic"): len(section.get("findings", []))
+            for section in sections
+        }
+
+        well_covered, partial, gaps = [], [], []
+        for subtopic in subtopics:
+            count = finding_counts.get(subtopic, 0)
+            if count == 0:
+                gaps.append(subtopic)
+            elif count < MIN_FINDINGS_FOR_SUBSTANTIVE_COVERAGE:
+                partial.append(subtopic)
+            else:
+                well_covered.append(subtopic)
+
+        completeness = len(well_covered) / len(subtopics) if subtopics else 0.0
+        return {
+            "well_covered": well_covered,
+            "partial": partial,
+            "gaps": gaps,
+            "completeness": completeness,
+        }
 
     async def research(self, topic: str) -> dict[str, Any]:
         """
-        Run a topic through the coordinator's pipeline. Aggregation (Step 4)
-        and iterative refinement (Step 5) land in later steps - for now this
-        proves decomposition + delegation work end-to-end: each subagent
-        gets its own subtopic plus the full explicit context it needs, since
-        it starts with nothing otherwise.
+        Run a topic through the coordinator's pipeline: decompose, delegate
+        to a subagent per subtopic, then aggregate + evaluate coverage.
+        Iterative refinement (re-delegating into any gaps found) is Step 5.
         """
         logger.info(f"=== Coordinator starting research on: '{topic}' ===")
 
         subtopics = await self.decompose(topic)
         logger.info(f"Decomposed '{topic}' into {len(subtopics)} subtopic(s): {subtopics}")
 
-        # --- Step 3 demo: delegate the first two subtopics, one to each
-        # subagent type, to prove explicit context passing across the
-        # isolation boundary. Step 4 (aggregation) wires this up across the
-        # FULL subtopic list and evaluates coverage against it.
-        sections = []
-        for subtopic, agent in zip(subtopics[:2], self.subagents):
-            logger.info(f"Delegating subtopic '{subtopic}' to subagent '{agent['name']}'")
-            finding = await self.delegate_to_subagent(agent, subtopic, topic)
-            sections.append(finding)
+        # Round-robin each subtopic to one of the two subagent types. Each
+        # delegation is fully independent (subagent isolation cuts both
+        # ways - no shared state also means no cross-call dependency), so
+        # they can run concurrently via asyncio.gather instead of awaiting
+        # them one at a time.
+        delegations = [
+            self.delegate_to_subagent(self.subagents[i % len(self.subagents)], subtopic, topic)
+            for i, subtopic in enumerate(subtopics)
+        ]
+        logger.info(f"Delegating {len(delegations)} subtopic(s) across {len(self.subagents)} subagent(s)")
+        sections = list(await asyncio.gather(*delegations))
+
+        # --- Step 4: aggregate + evaluate coverage ---
+        coverage = self.evaluate_coverage(subtopics, sections)
+        logger.info(f"Coverage assessment:\n{json.dumps(coverage, indent=2)}")
 
         report = {
             "topic": topic,
             "subtopics": subtopics,
-            # Populated by delegation above (Step 3, first two subtopics only
-            # for now) and expanded by aggregation (Step 4).
             "sections": sections,
+            "coverage": coverage,
         }
         return report
 
@@ -264,7 +314,7 @@ async def main():
     logger.info("=== Execution started ===")
     start_time = time.perf_counter()
 
-    logger.info("=== Step 3: delegate to subagents with explicit context passing ===")
+    logger.info("=== Step 4: full delegation + coverage aggregation ===")
     coordinator = Coordinator()
     report = await coordinator.research("renewable energy technologies")
     logger.info(f"Report:\n{json.dumps(report, indent=2, default=str)}")
