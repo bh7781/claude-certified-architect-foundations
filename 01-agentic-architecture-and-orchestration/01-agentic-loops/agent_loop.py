@@ -42,5 +42,62 @@ def print_registered_tools():
         print()
 
 
+# --- Step 2: the agentic loop skeleton ---
+#
+# Goal: call client.messages.create() in a loop and use response.stop_reason
+# to decide what to do next — NOT response.content[0].type. stop_reason is
+# the field the API guarantees will tell us definitively whether Claude is
+# done ("end_turn") or wants to call a tool ("tool_use"). Checking content
+# types instead is unreliable, because a single response can mix content
+# blocks (e.g. some text AND a tool_use block together).
+#
+# We're not executing tools yet (that's the next step) — for now we just
+# detect that Claude asked for one and stop, so we don't loop forever
+# re-sending the same request without ever giving Claude a tool result.
+
+
+def run_agent_loop(user_prompt: str):
+    # `messages` is the running conversation history we send on every call.
+    messages = [{"role": "user", "content": user_prompt}]
+
+    while True:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            tools=TOOLS,
+            messages=messages,
+        )
+
+        print(f"stop_reason: {response.stop_reason}")
+
+        if response.stop_reason == "end_turn":
+            # Claude finished its answer without needing any tool. Done.
+            break
+
+        if response.stop_reason == "tool_use":
+            # Claude wants to call one of our tools. Actually running the
+            # tool and sending the result back is what the next step adds.
+            print("Claude requested a tool call - handling this is the next step, stopping here for now.")
+            break
+
+        # Anything else (e.g. max_tokens, stop_sequence) — stop and surface it.
+        print(f"Unhandled stop_reason: {response.stop_reason}")
+        break
+
+    return response
+
+
 if __name__ == "__main__":
+    print("=== Step 1: Register tools so Claude knows they're available ===")
     print_registered_tools()
+
+    print("=== Step 2: Run the agentic loop and branch on stop_reason ===")
+
+    print("--- Prompt that should end in a plain answer (end_turn) ---")
+    plain_response = run_agent_loop("what is the capital of France?")
+    print(plain_response.content)
+
+    print()
+    print("--- Prompt that should trigger a tool call (tool_use) ---")
+    tool_response = run_agent_loop("47 * 12")
+    print(tool_response.content)
