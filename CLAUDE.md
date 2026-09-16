@@ -14,10 +14,11 @@ CCAR-F exam.
   per topic (see structure below).
 
 ## Structure
-- Each certification topic/domain gets its own top-level folder, named to match
-  the guide (e.g. `agentic-architecture-and-orchestration/`).
-- Within a topic folder, individual build exercises get their own subfolder
-  (e.g. `agentic-loops/`).
+- Each certification topic/domain gets its own top-level folder, numbered in
+  build order and named to match the guide (e.g.
+  `01-agentic-architecture-and-orchestration/`).
+- Within a topic folder, individual build exercises get their own
+  numbered subfolder (e.g. `01-agentic-loops/`).
 - `.env` at the workspace root holds shared secrets (e.g. `ANTHROPIC_API_KEY`)
   available to all exercises — do not duplicate API keys per-exercise unless
   an exercise specifically needs isolation.
