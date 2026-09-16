@@ -43,6 +43,15 @@ from utils.message_parser import format_message
 # Python's event loop is free to do other work instead of just sitting idle.
 client = AsyncAnthropic()
 
+# --- Step 6: safety iteration cap ---
+#
+# Goal: a fallback bound, not the primary stopping mechanism. The loop
+# should always terminate via stop_reason (end_turn) well before this in
+# normal operation - this constant only exists to prevent a runaway loop
+# (e.g. a tool that keeps giving Claude a reason to call another tool) from
+# looping forever / racking up API cost.
+MAX_ITERATIONS = 20
+
 
 def print_registered_tools():
     """Print each tool's definition so we can visually confirm it's well-formed."""
@@ -102,6 +111,20 @@ async def run_agent_loop(user_prompt: str):
     iteration_count = 0
 
     while True:
+        # Safety cap check - deliberately placed *before* the increment, so
+        # MAX_ITERATIONS is the maximum number of API calls this loop will
+        # ever make. This should never trigger in normal operation; if it
+        # does, something (a bad tool, a confused prompt) is preventing
+        # Claude from ever reaching stop_reason == "end_turn".
+        if iteration_count >= MAX_ITERATIONS:
+            logger.warning(
+                f"Safety cap reached: {MAX_ITERATIONS} iterations without an end_turn - stopping loop"
+            )
+            return (
+                f"Stopped after hitting the {MAX_ITERATIONS}-iteration safety cap without a final answer.",
+                iteration_count,
+            )
+
         iteration_count += 1
         logger.info(f"--- Loop iteration {iteration_count} ---")
         # type: ignore below - the SDK expects very specific TypedDict
