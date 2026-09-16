@@ -8,6 +8,7 @@ files.
 """
 
 import asyncio
+import json
 import sys
 import time
 from pathlib import Path
@@ -92,7 +93,17 @@ async def run_agent_loop(user_prompt: str):
     # up front instead of letting it assume "content" is always a string.
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_prompt}]
 
+    # --- Step 5: track iteration count ---
+    #
+    # Goal: make the loop's lifecycle visible. A prompt that needs sequential
+    # tool calls (e.g. search for a value, then calculate with it) should
+    # take multiple iterations - one API call per iteration - before Claude
+    # finally reaches end_turn. Counting iterations lets us confirm that.
+    iteration_count = 0
+
     while True:
+        iteration_count += 1
+        logger.info(f"--- Loop iteration {iteration_count} ---")
         # type: ignore below - the SDK expects very specific TypedDict
         # shapes for `tools` and `messages`, but plain dicts in exactly
         # this shape are what the Anthropic API docs themselves use, so
@@ -106,16 +117,19 @@ async def run_agent_loop(user_prompt: str):
 
         logger.info(f"stop_reason: {response.stop_reason}")
 
-        if response.stop_reason == "end_turn":
-            # Log the full response for debugging/learning purposes, then
-            # pull out just the final text to actually return.
-            logger.info(format_message(response) or response)
+        # Log the full response on every iteration (not just the final one) -
+        # so the whole loop's lifecycle is visible, including any text Claude
+        # sends alongside a tool_use block and the usage/token counts for
+        # each individual API call.
+        logger.info(format_message(response) or response)
 
+        if response.stop_reason == "end_turn":
             text_block = next(
                 (block for block in response.content if block.type == "text"), None
             )
             final_text = text_block.text if text_block else ""
-            return final_text
+            logger.info(f"Loop finished after {iteration_count} iteration(s)")
+            return final_text, iteration_count
 
         if response.stop_reason == "tool_use":
             # Find the tool_use block - it tells us which tool to call
@@ -128,7 +142,9 @@ async def run_agent_loop(user_prompt: str):
             # Look up and run the matching Python function from tools.py.
             tool_function = TOOL_IMPLEMENTATIONS[tool_use_block.name]
             tool_result = tool_function(**tool_use_block.input)
-            logger.info(f"Tool result: {tool_result}")
+            # json.dumps(..., indent=2) instead of str(tool_result) - a raw
+            # dict repr crams everything onto one dense, hard-to-scan line.
+            logger.info(f"Tool result:\n{json.dumps(tool_result, indent=2, default=str)}")
 
             # Add Claude's tool_use turn to the conversation history...
             messages.append({"role": "assistant", "content": response.content})
@@ -153,26 +169,32 @@ async def run_agent_loop(user_prompt: str):
 
         # Anything else (e.g. max_tokens, stop_sequence) — stop and surface it.
         logger.warning(f"Unhandled stop_reason: {response.stop_reason}")
-        return ""
+        return "", iteration_count
 
 
 async def main():
     logger.info("=== Execution started ===")
     start_time = time.perf_counter()
 
-    logger.info("=== Step 1: Register tools so Claude knows they're available ===")
-    print_registered_tools()
+    # logger.info("=== Step 1: Register tools so Claude knows they're available ===")
+    # print_registered_tools()
 
-    logger.info("=== Step 2: Run the agentic loop and branch on stop_reason ===")
+    # logger.info("=== Step 2: Run the agentic loop and branch on stop_reason ===")
 
-    logger.info("--- Prompt that should end in a plain answer (end_turn) ---")
-    plain_answer = await run_agent_loop("what is the capital of France? (answer in 1 word)")
-    logger.info(f"Final answer: {plain_answer}")
+    # logger.info("--- Prompt that should end in a plain answer (end_turn) ---")
+    # plain_answer, plain_iterations = await run_agent_loop("what is the capital of France? (answer in 1 word)")
+    # logger.info(f"Final answer: {plain_answer} (iterations: {plain_iterations})")
+
+    # logger.info("")
+    # logger.info("--- Prompt that should trigger a tool call (tool_use) and use the result ---")
+    # tool_answer, tool_iterations = await run_agent_loop("47 * 12")
+    # logger.info(f"Final answer: {tool_answer} (iterations: {tool_iterations})")
 
     logger.info("")
-    logger.info("--- Prompt that should trigger a tool call (tool_use) and use the result ---")
-    tool_answer = await run_agent_loop("47 * 12")
-    logger.info(f"Final answer: {tool_answer}")
+    logger.info("=== Step 5: sequential tool calls - search result feeds a calculation ===")
+    result, iteration_count = await run_agent_loop("Search for the current price of Bitcoin and calculate what 3.5 coins would cost")
+    logger.info(f"Iterations: {iteration_count}")
+    logger.info(f"Result: {result}")
 
     elapsed_seconds = time.perf_counter() - start_time
     logger.info(f"=== Execution finished (total time taken: {elapsed_seconds:.2f}s) ===")

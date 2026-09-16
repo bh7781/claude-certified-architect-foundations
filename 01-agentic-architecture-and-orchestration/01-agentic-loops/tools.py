@@ -36,18 +36,33 @@ def calculator(expression: str) -> dict:
 # --- web_search tool implementation (stub) ---
 
 
+# A few hardcoded facts so sequential search-then-calculate prompts (see
+# Step 5) have an actual number to chain into the calculator tool, instead of
+# a generic snippet with nothing to compute on. Matched by substring against
+# the lowercased query.
+MOCK_FACTS = {
+    "bitcoin": "The current price of Bitcoin is $62,340 per coin.",
+    "population of france": "The population of France is approximately 68,000,000.",
+}
+
+
 def web_search(query: str) -> dict:
     """
     Mock web search. Returns fake but realistically-shaped results so the
     agent loop can be built and tested without a real search API/key.
     """
+    fact = next(
+        (value for key, value in MOCK_FACTS.items() if key in query.lower()), None
+    )
+    snippet_1 = fact or f"This is a mock search snippet about {query}."
+
     return {
         "query": query,
         "results": [
             {
                 "title": f"Result 1 for '{query}'",
                 "url": "https://example.com/result-1",
-                "snippet": f"This is a mock search snippet about {query}.",
+                "snippet": snippet_1,
             },
             {
                 "title": f"Result 2 for '{query}'",

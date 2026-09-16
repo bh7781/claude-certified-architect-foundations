@@ -75,6 +75,17 @@ For each one:
   `None` for anything that isn't a Message, so callers should always do
   `logger.info(format_message(x) or x)` rather than assuming it always
   produces output.
+- In any agentic loop, call `logger.info(format_message(response) or response)`
+  on **every** iteration (right after checking `stop_reason`), not just on
+  the final `end_turn` response. Intermediate `tool_use` responses often
+  carry their own text block (Claude's reasoning before/alongside the tool
+  call) and usage stats — logging only the final message hides the rest of
+  the loop's lifecycle.
+- Log tool call inputs/outputs (and any other dict/JSON-shaped debug data)
+  with `json.dumps(data, indent=2, default=str)`, not an f-string embedding
+  the raw object (e.g. `f"Tool result: {tool_result}"`). A raw dict repr
+  prints as one dense, hard-to-scan line; pretty-printed JSON stays legible
+  next to `format_message()`'s indented output.
 - Exercise scripts use the async Anthropic client (`AsyncAnthropic`) with
   `async`/`await` for API calls, run via `asyncio.run(main())`.
 
