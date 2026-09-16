@@ -50,6 +50,20 @@ COORDINATOR_MODEL = "claude-haiku-4-5-20251001"
 # coordinator - it only needs to know what a subagent is called and what to
 # tell it.
 
+def _parse_json_array(text: str) -> list[str]:
+    """
+    Claude sometimes wraps a JSON array in a ```json fence even when told
+    "no other text" / "return as JSON array" - strip that before parsing.
+    Shared by both decomposition phases (Step 2) since they both ask for a
+    plain JSON array back.
+    """
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text.removeprefix("json").strip()
+    return json.loads(text)
+
+
 WEB_SEARCH_AGENT = {
     "name": "web_search_agent",
     "system_prompt": (
@@ -85,17 +99,8 @@ class Coordinator:
         )
         self.subagents = [WEB_SEARCH_AGENT, DOC_ANALYSIS_AGENT]
 
-    async def decompose(self, topic: str) -> list[str]:
-        """
-        Break a broad topic into subtopics. This is a minimal first pass
-        (one API call, ask for a JSON array) just so the pipeline below runs
-        end-to-end - Step 2 replaces this with the two-phase, breadth-checked
-        version that guards against narrow decomposition.
-        """
-        prompt = (
-            f"List the major subtopics for: {topic}. "
-            f"Return ONLY a JSON array of short subtopic strings, no other text."
-        )
+    async def _ask_for_subtopics(self, prompt: str) -> list[str]:
+        """Single API call that asks for a JSON array of subtopic strings back."""
         response = await client.messages.create(
             model=COORDINATOR_MODEL,
             max_tokens=1024,
@@ -107,14 +112,61 @@ class Coordinator:
         text_block = next(
             (block for block in response.content if block.type == "text"), None
         )
-        raw_text = text_block.text.strip() if text_block else "[]"
-        # Claude sometimes wraps JSON in a ```json fence despite the
-        # "no other text" instruction - strip that before parsing.
-        if raw_text.startswith("```"):
-            raw_text = raw_text.strip("`")
-            raw_text = raw_text.removeprefix("json").strip()
+        return _parse_json_array(text_block.text) if text_block else []
 
-        return json.loads(raw_text)
+    async def decompose(self, topic: str) -> list[str]:
+        """
+        Break a broad topic into subtopics, guarding against the "narrow
+        decomposition" exam failure pattern (e.g. only listing solar + wind
+        for renewable energy and silently missing geothermal, tidal, biomass,
+        fusion). Two phases:
+
+          1. Enumerate: ask broadly for ALL major categories, explicitly
+             framing an incomplete category list as a critical failure -
+             this is deliberately a *generation* pass, not a narrowing one.
+          2. Validate: hand the candidate list back to the model and ask it
+             to check its own breadth and add anything missing, before
+             committing to a final list. This catches gaps the first pass's
+             single generation might have missed.
+        """
+        # --- Phase 1: broad enumeration ---
+        enumerate_prompt = (
+            f"List ALL major subtopics for: {topic}. Ensure comprehensive "
+            f"breadth across every major subcategory of this subject - "
+            f"missing an entire category is a critical failure. Include at "
+            f"least 5 distinct subtopics. Return ONLY a JSON array of short "
+            f"subtopic strings, no other text."
+        )
+        candidate_subtopics = await self._ask_for_subtopics(enumerate_prompt)
+        logger.info(f"Phase 1 (enumerate) candidates: {candidate_subtopics}")
+
+        # --- Phase 2: validate breadth, fill any gaps ---
+        validate_prompt = (
+            f"Here is a candidate list of subtopics for the broad topic "
+            f"'{topic}':\n{json.dumps(candidate_subtopics)}\n\n"
+            f"Check this list for comprehensive breadth - are there any "
+            f"major subcategories of '{topic}' that are missing entirely? "
+            f"Consider the FULL maturity spectrum, not just mainstream, "
+            f"widely-deployed categories: also include experimental, "
+            f"research-stage, or not-yet-commercial technologies if they "
+            f"are a recognized category of this subject (e.g. for renewable "
+            f"energy, fusion is still experimental but is a distinct, "
+            f"well-known category that a narrow decomposition would miss). "
+            f"Return the FINAL, complete JSON array of subtopic strings: "
+            f"the candidates above plus any missing categories added in. "
+            f"Return ONLY the JSON array, no other text."
+        )
+        final_subtopics = await self._ask_for_subtopics(validate_prompt)
+        logger.info(f"Phase 2 (validate) final subtopics: {final_subtopics}")
+
+        if len(final_subtopics) < 5:
+            logger.warning(
+                f"Decomposition produced only {len(final_subtopics)} subtopic(s) "
+                f"for '{topic}' - below the 5-subtopic breadth floor, likely "
+                f"a narrow decomposition failure."
+            )
+
+        return final_subtopics
 
     async def research(self, topic: str) -> dict[str, Any]:
         """
@@ -141,10 +193,18 @@ async def main():
     logger.info("=== Execution started ===")
     start_time = time.perf_counter()
 
-    logger.info("=== Step 1: coordinator skeleton - decompose a broad topic ===")
+    logger.info("=== Step 2: two-phase decomposition - enumerate then validate breadth ===")
     coordinator = Coordinator()
     report = await coordinator.research("renewable energy technologies")
     logger.info(f"Report:\n{json.dumps(report, indent=2, default=str)}")
+
+    required_categories = ["solar", "wind", "geothermal", "tidal", "biomass", "fusion"]
+    subtopics_lower = " ".join(report["subtopics"]).lower()
+    missing = [cat for cat in required_categories if cat not in subtopics_lower]
+    logger.info(
+        "Coverage check: Full coverage" if not missing
+        else f"Coverage check: Missing {missing}"
+    )
 
     elapsed_seconds = time.perf_counter() - start_time
     logger.info(f"=== Execution finished (total time taken: {elapsed_seconds:.2f}s) ===")
