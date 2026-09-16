@@ -36,6 +36,48 @@ CCAR-F exam.
   `# --- Step N: ... ---` comment header so the progression stays legible in
   one file.
 
+## Task workflow (when the user pastes a numbered step from the guide)
+The user shares individual numbered tasks/steps from an exercise one at a time
+(e.g. "3. Handle the tool_use stop_reason...", often with a Why, a "You should
+see" expectation, a hint question, and JS starter code). They may refer to the
+same step inconsistently as "step N" or "task-N" across messages — treat these
+as the same thing, matching the guide's own numbering for that exercise.
+
+For each one:
+1. Implement the change directly in the exercise's existing script (see
+   Structure above — one script per exercise, not per step), translating any
+   JS starter code into the equivalent Python/Anthropic SDK pattern. Add a
+   `# --- Step N: ... ---` header above the new code.
+2. Actually run it against the real Claude API (using the workspace `venv`
+   and root `.env`) and confirm the output matches what the step says to expect
+   — don't just write the code and assume it works.
+3. Reply with, in this order: what changed (concise, with file/line
+   references), how to run it, what output to expect, and what concept this
+   step teaches (tie it back to what the exam is testing).
+4. End with a short, one-line suggested commit message — no attribution
+   footer/co-author line, the user does not want those in this repo.
+5. Do not `git commit` or `git push` unless the user explicitly asks — they
+   review the code themselves first and ask for the commit separately.
+
+## Logging (all exercises)
+- `utils/logger.py` exposes a shared `logger` (standard `logging.Logger`) —
+  call `logger.info(...)`, `logger.debug(...)`, `logger.warning(...)`, etc.
+  directly. Do not print() directly and do not reintroduce a `log()` wrapper
+  function — use the logger object itself so any level can be used.
+- Console output only shows the plain message (INFO and above) — no
+  timestamps/metadata clutter on screen.
+- The log file (`logs/ccarf-practise-YYYYMMDD.log`, gitignored, rotates at
+  10MB) captures everything from DEBUG up, one line per call, formatted as:
+  `timestamp | level | file:line | function() | memory | message`.
+- `utils/message_parser.py`'s `format_message(obj)` fully pretty-prints an
+  Anthropic `Message` response (every field, nothing summarized/dropped),
+  wrapped in `---` divider lines so it's easy to spot in the log. It returns
+  `None` for anything that isn't a Message, so callers should always do
+  `logger.info(format_message(x) or x)` rather than assuming it always
+  produces output.
+- Exercise scripts use the async Anthropic client (`AsyncAnthropic`) with
+  `async`/`await` for API calls, run via `asyncio.run(main())`.
+
 ## Conventions
 - Keep each exercise self-contained in its own folder so it can be run/reviewed independently.
 - Favor minimal, readable implementations that highlight the concept being taught over

@@ -7,13 +7,14 @@ it's clear what was added when, without needing separate step1.py, step2.py
 files.
 """
 
+import asyncio
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from anthropic import Anthropic
+from anthropic import AsyncAnthropic
 
 from tools import TOOLS, TOOL_IMPLEMENTATIONS
 
@@ -34,9 +35,12 @@ from utils.message_parser import format_message
 # No API call happens yet — this step is just about the client and the tool
 # definitions being correctly formed.
 
-# Anthropic() automatically reads the ANTHROPIC_API_KEY environment
+# AsyncAnthropic() automatically reads the ANTHROPIC_API_KEY environment
 # variable (loaded above from the root .env), so no key is passed explicitly.
-client = Anthropic()
+# We use the async client (instead of Anthropic()) so that awaiting the API
+# call doesn't block the whole thread - while we're waiting on the network,
+# Python's event loop is free to do other work instead of just sitting idle.
+client = AsyncAnthropic()
 
 
 def print_registered_tools():
@@ -68,7 +72,17 @@ def print_registered_tools():
 # Then we loop again so Claude can respond using that result.
 
 
-def run_agent_loop(user_prompt: str):
+# --- Step 4: handle stop_reason == "end_turn" by returning the final text ---
+#
+# Goal: end_turn means Claude is done - no more tool calls needed. The
+# content list can hold more than one block, so we specifically look for
+# the one with type == "text" (not content[0] - that block isn't always
+# first, e.g. right after a tool call Claude sometimes leads with other
+# content). Its `.text` field is the actual answer to show the user, so
+# that's what the loop returns - not the raw Message object.
+
+
+async def run_agent_loop(user_prompt: str):
     logger.info(f"User prompt: {user_prompt}")
 
     # `messages` is the running conversation history we send on every call.
@@ -83,7 +97,7 @@ def run_agent_loop(user_prompt: str):
         # shapes for `tools` and `messages`, but plain dicts in exactly
         # this shape are what the Anthropic API docs themselves use, so
         # this is a type-checker nitpick rather than a real bug.
-        response = client.messages.create(
+        response = await client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             tools=TOOLS,  # type: ignore[arg-type]
@@ -93,8 +107,15 @@ def run_agent_loop(user_prompt: str):
         logger.info(f"stop_reason: {response.stop_reason}")
 
         if response.stop_reason == "end_turn":
-            # Claude finished its answer without needing any tool. Done.
-            break
+            # Log the full response for debugging/learning purposes, then
+            # pull out just the final text to actually return.
+            logger.info(format_message(response) or response)
+
+            text_block = next(
+                (block for block in response.content if block.type == "text"), None
+            )
+            final_text = text_block.text if text_block else ""
+            return final_text
 
         if response.stop_reason == "tool_use":
             # Find the tool_use block - it tells us which tool to call
@@ -132,12 +153,10 @@ def run_agent_loop(user_prompt: str):
 
         # Anything else (e.g. max_tokens, stop_sequence) — stop and surface it.
         logger.warning(f"Unhandled stop_reason: {response.stop_reason}")
-        break
-
-    return response
+        return ""
 
 
-if __name__ == "__main__":
+async def main():
     logger.info("=== Execution started ===")
     start_time = time.perf_counter()
 
@@ -147,15 +166,17 @@ if __name__ == "__main__":
     logger.info("=== Step 2: Run the agentic loop and branch on stop_reason ===")
 
     logger.info("--- Prompt that should end in a plain answer (end_turn) ---")
-    plain_response = run_agent_loop("what is the capital of France? (answer in 1 word)")
-    # format_message() only pretty-prints actual Message responses - it
-    # returns None for anything else, so we fall back to logging as-is.
-    logger.info(format_message(plain_response) or plain_response)
+    plain_answer = await run_agent_loop("what is the capital of France? (answer in 1 word)")
+    logger.info(f"Final answer: {plain_answer}")
 
     logger.info("")
     logger.info("--- Prompt that should trigger a tool call (tool_use) and use the result ---")
-    tool_response = run_agent_loop("47 * 12")
-    logger.info(format_message(tool_response) or tool_response)
+    tool_answer = await run_agent_loop("47 * 12")
+    logger.info(f"Final answer: {tool_answer}")
 
     elapsed_seconds = time.perf_counter() - start_time
     logger.info(f"=== Execution finished (total time taken: {elapsed_seconds:.2f}s) ===")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
