@@ -50,12 +50,12 @@ COORDINATOR_MODEL = "claude-haiku-4-5-20251001"
 # coordinator - it only needs to know what a subagent is called and what to
 # tell it.
 
-def _parse_json_array(text: str) -> list[str]:
+def _parse_json_response(text: str) -> Any:
     """
-    Claude sometimes wraps a JSON array in a ```json fence even when told
-    "no other text" / "return as JSON array" - strip that before parsing.
-    Shared by both decomposition phases (Step 2) since they both ask for a
-    plain JSON array back.
+    Claude sometimes wraps JSON (array or object) in a ```json fence even
+    when told "no other text" - strip that before parsing. Shared by
+    decomposition (Step 2, arrays) and delegation (Step 3, objects) since
+    both just ask for plain JSON back.
     """
     text = text.strip()
     if text.startswith("```"):
@@ -112,7 +112,7 @@ class Coordinator:
         text_block = next(
             (block for block in response.content if block.type == "text"), None
         )
-        return _parse_json_array(text_block.text) if text_block else []
+        return _parse_json_response(text_block.text) if text_block else []
 
     async def decompose(self, topic: str) -> list[str]:
         """
@@ -168,23 +168,94 @@ class Coordinator:
 
         return final_subtopics
 
+    async def delegate_to_subagent(
+        self,
+        agent: dict[str, str],
+        subtopic: str,
+        research_goal: str,
+        prior_findings: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Hand one subtopic to one subagent. Subagent isolation means the
+        subagent has NO memory of this conversation, the original topic, or
+        any other subagent's work - it only knows what's in this one prompt.
+        So every piece of context it could possibly need has to be spelled
+        out explicitly here, every time:
+          - the specific subtopic it's assigned (not just "the topic")
+          - the broader research goal, so it knows *why* this subtopic
+            matters and can scope its findings accordingly
+          - the expected output format, so results can be aggregated later
+          - any prior findings relevant to its task - if we skip this, a
+            subagent re-delegated to in Step 5 (gap-filling) would silently
+            re-do work or contradict earlier findings, because it has no way
+            to know they exist otherwise.
+        """
+        prior_findings_text = (
+            prior_findings
+            if prior_findings
+            else "None yet - this is the first research pass for this subtopic."
+        )
+        prompt = (
+            f"Research subtopic: {subtopic}\n"
+            f"Broader research goal: {research_goal}\n"
+            f"Prior findings relevant to this subtopic: {prior_findings_text}\n\n"
+            f"Return structured findings as a JSON object with this exact "
+            f'shape: {{"subtopic": string, "findings": [{{"fact": string, '
+            f'"source_url": string, "confidence": "high" | "medium" | "low"}}]}}. '
+            f"Return ONLY the JSON object, no other text."
+        )
+        response = await client.messages.create(
+            model=COORDINATOR_MODEL,
+            max_tokens=2048,
+            system=agent["system_prompt"],
+            messages=[{"role": "user", "content": prompt}],
+        )
+        logger.info(format_message(response) or response)
+
+        text_block = next(
+            (block for block in response.content if block.type == "text"), None
+        )
+        raw_text = text_block.text if text_block else "{}"
+        try:
+            parsed = _parse_json_response(raw_text)
+        except json.JSONDecodeError:
+            logger.warning(
+                f"Subagent '{agent['name']}' returned non-JSON output for "
+                f"subtopic '{subtopic}' - keeping raw text instead."
+            )
+            parsed = {"subtopic": subtopic, "findings": [], "raw_text": raw_text}
+
+        return {"agent": agent["name"], **parsed}
+
     async def research(self, topic: str) -> dict[str, Any]:
         """
-        Run a topic through the coordinator's pipeline. Delegation (Step 3),
-        aggregation (Step 4), and iterative refinement (Step 5) land in
-        later steps - for now this proves the hub skeleton (system prompt,
-        subagent roster, decomposition) works end-to-end against the real API.
+        Run a topic through the coordinator's pipeline. Aggregation (Step 4)
+        and iterative refinement (Step 5) land in later steps - for now this
+        proves decomposition + delegation work end-to-end: each subagent
+        gets its own subtopic plus the full explicit context it needs, since
+        it starts with nothing otherwise.
         """
         logger.info(f"=== Coordinator starting research on: '{topic}' ===")
 
         subtopics = await self.decompose(topic)
         logger.info(f"Decomposed '{topic}' into {len(subtopics)} subtopic(s): {subtopics}")
 
+        # --- Step 3 demo: delegate the first two subtopics, one to each
+        # subagent type, to prove explicit context passing across the
+        # isolation boundary. Step 4 (aggregation) wires this up across the
+        # FULL subtopic list and evaluates coverage against it.
+        sections = []
+        for subtopic, agent in zip(subtopics[:2], self.subagents):
+            logger.info(f"Delegating subtopic '{subtopic}' to subagent '{agent['name']}'")
+            finding = await self.delegate_to_subagent(agent, subtopic, topic)
+            sections.append(finding)
+
         report = {
             "topic": topic,
             "subtopics": subtopics,
-            # Populated by delegation (Step 3) and aggregation (Step 4).
-            "sections": [],
+            # Populated by delegation above (Step 3, first two subtopics only
+            # for now) and expanded by aggregation (Step 4).
+            "sections": sections,
         }
         return report
 
@@ -193,7 +264,7 @@ async def main():
     logger.info("=== Execution started ===")
     start_time = time.perf_counter()
 
-    logger.info("=== Step 2: two-phase decomposition - enumerate then validate breadth ===")
+    logger.info("=== Step 3: delegate to subagents with explicit context passing ===")
     coordinator = Coordinator()
     report = await coordinator.research("renewable energy technologies")
     logger.info(f"Report:\n{json.dumps(report, indent=2, default=str)}")
