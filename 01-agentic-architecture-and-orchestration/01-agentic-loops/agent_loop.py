@@ -8,6 +8,7 @@ files.
 """
 
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,8 @@ def print_registered_tools():
 
 
 def run_agent_loop(user_prompt: str):
+    logger.info(f"User prompt: {user_prompt}")
+
     # `messages` is the running conversation history we send on every call.
     # Typed as `dict[str, Any]` because "content" can be either a plain
     # string (a normal text turn) or a list of blocks (a tool_use /
@@ -135,6 +138,9 @@ def run_agent_loop(user_prompt: str):
 
 
 if __name__ == "__main__":
+    logger.info("=== Execution started ===")
+    start_time = time.perf_counter()
+
     logger.info("=== Step 1: Register tools so Claude knows they're available ===")
     print_registered_tools()
 
@@ -150,3 +156,6 @@ if __name__ == "__main__":
     logger.info("--- Prompt that should trigger a tool call (tool_use) and use the result ---")
     tool_response = run_agent_loop("47 * 12")
     logger.info(format_message(tool_response) or tool_response)
+
+    elapsed_seconds = time.perf_counter() - start_time
+    logger.info(f"=== Execution finished (total time taken: {elapsed_seconds:.2f}s) ===")
