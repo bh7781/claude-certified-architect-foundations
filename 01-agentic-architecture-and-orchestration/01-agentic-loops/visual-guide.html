@@ -1,0 +1,833 @@
+<title>Agentic Loop Lifecycle</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* ---------- tokens (light first, dark redefines only tokens) ---------- */
+  :root {
+    --bg: #F4F6F9;
+    --surface: #FFFFFF;
+    --ink: #1A1F27;
+    --muted: #5B6472;
+    --line: #D5DBE3;
+    --code-bg: #EDF0F4;
+    --accent: #2456C7;          /* the stop_reason signal */
+    --accent-soft: rgba(36, 86, 199, 0.10);
+    --go: #A8650F;              /* tool_use: keep going */
+    --go-soft: rgba(168, 101, 15, 0.12);
+    --done: #22804F;            /* end_turn: finished */
+    --done-soft: rgba(34, 128, 79, 0.12);
+    --stop: #B3402F;            /* traps, warnings */
+    --stop-soft: rgba(179, 64, 47, 0.10);
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --display: "IBM Plex Sans Condensed", "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121519; --surface: #1A1E25; --ink: #E4E8EE; --muted: #98A2B0; --line: #2E3540; --code-bg: #0F1216;
+      --accent: #8AB0FF; --accent-soft: rgba(138, 176, 255, 0.14);
+      --go: #E5B15E; --go-soft: rgba(229, 177, 94, 0.16);
+      --done: #6CD09A; --done-soft: rgba(108, 208, 154, 0.16);
+      --stop: #F08A7A; --stop-soft: rgba(240, 138, 122, 0.14);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121519; --surface: #1A1E25; --ink: #E4E8EE; --muted: #98A2B0; --line: #2E3540; --code-bg: #0F1216;
+    --accent: #8AB0FF; --accent-soft: rgba(138, 176, 255, 0.14);
+    --go: #E5B15E; --go-soft: rgba(229, 177, 94, 0.16);
+    --done: #6CD09A; --done-soft: rgba(108, 208, 154, 0.16);
+    --stop: #F08A7A; --stop-soft: rgba(240, 138, 122, 0.14);
+  }
+
+  /* ---------- base ---------- */
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15.5px; line-height: 1.55; }
+  h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.15; margin: 0; }
+  h1 { font-size: 2.3rem; font-weight: 600; }
+  h2 { font-size: 1.5rem; font-weight: 600; }
+  h3 { font-size: 1.08rem; font-weight: 600; }
+  p { margin: 0; }
+  a { color: var(--accent); }
+  code, pre { font-family: var(--mono); }
+  code { font-size: 0.88em; background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 3px; }
+  pre { margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; font-size: 12.5px; line-height: 1.5; overflow-x: auto; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .k { color: var(--accent); }
+  .s { color: var(--done); }
+  .c { color: var(--muted); font-style: italic; }
+  .hl { background: var(--accent-soft); display: inline-block; width: 100%; }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .muted { color: var(--muted); }
+  .small { font-size: 13.5px; }
+
+  /* ---------- page frame: sticky index on the left, content on the right ---------- */
+  .wrap { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 40px; max-width: 1760px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 72px; }
+  .side { position: sticky; top: env(safe-area-inset-top, 0px); align-self: start; max-height: 100vh; overflow-y: auto; padding-block: 10px; display: grid; gap: 14px; align-content: start; }
+  .side .brand { display: grid; gap: 2px; }
+  .side .brand b { font-family: var(--display); font-size: 15px; font-weight: 600; }
+  .side nav { display: grid; }
+  .side nav a { display: block; padding: 6px 10px; border-left: 2px solid var(--line); color: var(--muted); text-decoration: none; font-size: 13.5px; line-height: 1.3; }
+  .side nav a:hover, .side nav a:focus-visible { color: var(--accent); outline: none; }
+  .side nav a.active { border-left-color: var(--accent); color: var(--ink); font-weight: 500; background: var(--accent-soft); }
+  .side .files { display: grid; gap: 4px; font-size: 12px; }
+  .side .files a { font-family: var(--mono); color: var(--muted); text-decoration: none; }
+  .side .files a:hover { color: var(--accent); }
+  main { display: grid; gap: 0; min-width: 0; }
+  @media (max-width: 900px) {
+    .wrap { grid-template-columns: 1fr; gap: 12px; }
+    .side { top: 0; z-index: 5; background: var(--bg); max-height: none; overflow: visible; padding-block: 6px; border-bottom: 1px solid var(--line); gap: 0; }
+    .side .brand, .side .files { display: none; }
+    .side nav { display: flex; overflow-x: auto; gap: 2px; -webkit-overflow-scrolling: touch; }
+    .side nav a { border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; padding: 6px 8px; }
+    .side nav a.active { border-bottom-color: var(--accent); background: none; }
+  }
+
+  /* ---------- header ---------- */
+  header { display: grid; gap: 10px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+  header .thesis { font-size: 1.12rem; }
+  header .thesis strong { color: var(--accent); }
+  .sources { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sources span { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; background: var(--surface); }
+
+  /* ---------- TL;DR ---------- */
+  .tldr { display: grid; gap: 14px; padding-block: 26px; border-bottom: 1px solid var(--line); }
+  .tldr .panel { background: var(--surface); border: 1px solid var(--accent); border-radius: 10px; padding: 18px 20px; display: grid; gap: 16px; }
+  .tldr .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 6px; font-size: 14px; }
+  .tldr .flow .node { font-family: var(--mono); font-size: 12.5px; border: 1.3px solid currentColor; border-radius: 6px; padding: 5px 10px; background: var(--code-bg); }
+  .tldr .flow .node.acc { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+  .tldr .flow .node.go { color: var(--go); background: var(--go-soft); }
+  .tldr .flow .node.done { color: var(--done); background: var(--done-soft); }
+  .tldr .flow .arrow { color: var(--muted); }
+  .tldr .flow .branch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 12px; border-left: 2px solid var(--line); }
+  .tldr .rule { font-family: var(--display); font-size: 1.25rem; font-weight: 600; color: var(--accent); }
+  .tldr ol { margin: 0; padding-left: 22px; display: grid; gap: 8px; font-size: 15px; }
+  .tldr ol li::marker { font-family: var(--mono); color: var(--muted); }
+  .tldr ol b { font-weight: 600; }
+  .tldr .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+  @media (max-width: 1100px) { .tldr .grid { grid-template-columns: 1fr; } }
+
+  /* ---------- sections ---------- */
+  section { display: grid; gap: 14px; padding-block: 34px; border-bottom: 1px solid var(--line); scroll-margin-top: 12px; }
+  section:last-of-type { border-bottom: 0; }
+  .sec-head { display: grid; gap: 4px; }
+  figure { margin: 0; display: grid; gap: 10px; }
+  .fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .fig-scroll svg { display: block; width: 100%; height: auto; min-width: 700px; }
+  figcaption { font-size: 13.5px; color: var(--muted); }
+  svg text { font-family: var(--sans); font-size: 12px; fill: currentColor; }
+  svg text.mono { font-family: var(--mono); font-size: 11px; }
+  svg text.tiny { font-size: 10.5px; }
+  svg .box { fill: var(--surface); stroke: currentColor; stroke-width: 1.2; }
+  svg .box-go { fill: var(--go-soft); stroke: var(--go); stroke-width: 1.4; }
+  svg .box-done { fill: var(--done-soft); stroke: var(--done); stroke-width: 1.4; }
+  svg .box-muted { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+  svg .box-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.8; }
+  svg .tag { fill: var(--code-bg); }
+  svg .edge { stroke: currentColor; stroke-width: 1.4; fill: none; }
+  svg .edge-go { stroke: var(--go); stroke-width: 1.6; fill: none; }
+  svg .edge-done { stroke: var(--done); stroke-width: 1.6; fill: none; }
+  svg .edge-muted { stroke: var(--muted); stroke-width: 1.3; fill: none; stroke-dasharray: 5 4; }
+  svg .t-go { fill: var(--go); }
+  svg .t-done { fill: var(--done); }
+  svg .t-muted { fill: var(--muted); }
+  svg .t-accent { fill: var(--accent); }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12.5px; color: var(--muted); }
+  .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; border: 1.5px solid; }
+  .legend .go i { border-color: var(--go); background: var(--go-soft); }
+  .legend .done i { border-color: var(--done); background: var(--done-soft); }
+  .legend .acc i { border-color: var(--accent); background: var(--accent-soft); }
+  .legend .mut i { border-color: var(--muted); border-style: dashed; }
+
+  /* ---------- callouts ---------- */
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 10px 14px; border-radius: 0 6px 6px 0; font-size: 14.5px; }
+  .callout.stop { border-color: var(--stop); background: var(--stop-soft); }
+  .callout.go { border-color: var(--go); background: var(--go-soft); }
+  .callout strong { font-weight: 600; }
+
+  /* ---------- tables ---------- */
+  .tbl-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  tr:last-child td { border-bottom: 0; }
+  td code { white-space: nowrap; }
+  .chip { display: inline-block; font-family: var(--mono); font-size: 11.5px; border-radius: 999px; padding: 1px 9px; border: 1px solid; white-space: nowrap; }
+  .chip.go { color: var(--go); border-color: var(--go); background: var(--go-soft); }
+  .chip.done { color: var(--done); border-color: var(--done); background: var(--done-soft); }
+  .chip.mut { color: var(--muted); border-color: var(--muted); }
+  .chip.stop { color: var(--stop); border-color: var(--stop); background: var(--stop-soft); }
+  .chip.acc { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+
+  /* ---------- trace timeline ---------- */
+  .trace { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .trace .step { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 6px; align-content: start; }
+  .trace .step.final { border-color: var(--done); }
+  .trace .step .n { font-family: var(--display); font-weight: 600; font-size: 15px; }
+  .trace .step .line { font-size: 13.5px; }
+  .trace .step .line code { font-size: 12px; }
+  .trace .step .meta { font-family: var(--mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .trace.capped { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .trace.capped .step.warn { border-color: var(--stop); background: var(--stop-soft); }
+  @media (max-width: 720px) { .trace, .trace.capped { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 440px) { .trace, .trace.capped { grid-template-columns: 1fr; } }
+
+  /* ---------- two-up cards ---------- */
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+  .card h3 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .card dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; font-size: 13.5px; }
+  .card dt { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  .card dd { margin: 0; }
+  .card.model { border-top: 3px solid var(--done); }
+  .card.fixed { border-top: 3px solid var(--muted); }
+  .card ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14.5px; }
+
+  /* ---------- annotated snippets ---------- */
+  .snip { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start; }
+  @media (max-width: 760px) { .snip { grid-template-columns: 1fr; } }
+  .snip .note { display: grid; gap: 8px; font-size: 14.5px; padding-top: 4px; }
+  .snip .note .where { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .snip .note .avoids { font-size: 13.5px; }
+
+  /* ---------- traps ---------- */
+  details.trap { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--stop); border-radius: 6px; }
+  details.trap summary { cursor: pointer; padding: 12px 14px; font-weight: 500; list-style: none; display: flex; gap: 10px; align-items: baseline; }
+  details.trap summary::-webkit-details-marker { display: none; }
+  details.trap summary::before { content: "+"; font-family: var(--mono); color: var(--stop); width: 12px; flex: none; }
+  details.trap[open] summary::before { content: "\2212"; }
+  details.trap summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+  details.trap .body { padding: 0 14px 14px 36px; display: grid; gap: 8px; font-size: 14.5px; }
+  details.trap .body .row { display: grid; grid-template-columns: 76px 1fr; gap: 10px; }
+  details.trap .body .row b { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 500; padding-top: 3px; }
+  details.trap .body .row.wrong b { color: var(--stop); }
+  details.trap .body .row.why b { color: var(--muted); }
+  details.trap .body .row.right b { color: var(--done); }
+  .trap-controls { display: flex; gap: 8px; }
+  .trap-controls button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .trap-controls button:hover { border-color: var(--accent); color: var(--accent); }
+  .trap-controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- steps map ---------- */
+  .steps { display: grid; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .steps .row { display: grid; grid-template-columns: 34px minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1.4fr); gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; align-items: baseline; }
+  .steps .row:last-child { border-bottom: 0; }
+  .steps .row.head { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .steps .row .n { font-family: var(--display); font-weight: 600; color: var(--accent); }
+  @media (max-width: 640px) { .steps .row { grid-template-columns: 30px 1fr; } .steps .row span:nth-child(n+3) { grid-column: 2; font-size: 12.5px; color: var(--muted); } }
+
+  footer { padding-top: 24px; font-size: 13px; color: var(--muted); display: grid; gap: 6px; }
+</style>
+
+<div class="wrap">
+
+<aside class="side" aria-label="Page index">
+  <div class="brand">
+    <span class="eyebrow">CCAR-F · Domain 1 · 01</span>
+    <b>Agentic Loop Lifecycle</b>
+  </div>
+  <nav>
+    <a href="#tldr">TL;DR</a>
+    <a href="#build">The build in six steps</a>
+    <a href="#lifecycle">Lifecycle flowchart</a>
+    <a href="#history">Message history growth</a>
+    <a href="#trace">A real run</a>
+    <a href="#anatomy">Anatomy</a>
+    <a href="#reasons">stop_reason values</a>
+    <a href="#decisions">Who decides</a>
+    <a href="#code">Key code</a>
+    <a href="#traps">Exam traps</a>
+  </nav>
+  <div class="files">
+    <span class="eyebrow">Sources</span>
+    <a href="notes.md">notes.md</a>
+    <a href="task.md">task.md</a>
+    <a href="agent_loop.py">agent_loop.py</a>
+    <a href="tools.py">tools.py</a>
+  </div>
+</aside>
+
+<main>
+
+<header>
+  <div class="eyebrow">CCAR-F · Domain 1 · Agentic architecture and orchestration · Submodule 01 · Task Statement 1.1</div>
+  <h1>Agentic Loop Lifecycle</h1>
+  <p class="thesis">An agentic loop is deterministic control flow written in code. Every iteration sends the whole conversation to Claude, reads one field, <strong><code>stop_reason</code></strong>, and branches on it. That field is the only reliable termination signal. Everything else on this page hangs off that sentence.</p>
+  <div class="sources">
+    <span>notes.md</span><span>task.md</span><span>agent_loop.py</span><span>tools.py</span><span>logs · 2026-09-16 run</span>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<section id="tldr" class="tldr">
+  <div class="sec-head">
+    <div class="eyebrow">TL;DR</div>
+    <h2>If you remember nothing else</h2>
+  </div>
+  <div class="panel">
+    <div class="rule">Branch on <code>stop_reason</code>. Nothing else is a termination signal.</div>
+    <div class="flow" aria-label="The loop in one line">
+      <span class="node">user prompt</span><span class="arrow">→</span>
+      <span class="node">messages[]</span><span class="arrow">→</span>
+      <span class="node">messages.create(tools, messages)</span><span class="arrow">→</span>
+      <span class="node acc">stop_reason ?</span>
+      <span class="branch">
+        <span class="node go">tool_use</span><span class="arrow">→</span><span>run the tool, append assistant turn + user <code>tool_result</code>, call again</span>
+      </span>
+      <span class="branch">
+        <span class="node done">end_turn</span><span class="arrow">→</span><span>find the <code>text</code> block, return its text, exit</span>
+      </span>
+    </div>
+    <div class="grid">
+      <ol>
+        <li><b>Two values, two actions.</b> <code>tool_use</code> means run the tool and continue. <code>end_turn</code> means Claude is finished. Any other value means "not finished, check why", never "assume tool_use".</li>
+        <li><b>The handoff is where loops break.</b> On <code>tool_use</code> you append two messages: Claude's whole response as the assistant turn, then a user turn holding a <code>tool_result</code> whose <code>tool_use_id</code> equals the request's <code>id</code>. Skip the append and Claude never sees the result.</li>
+        <li><b>Text and tool calls share one response.</b> Claude often says "Let me look that up" and requests a tool in the same message. So <code>content[0].type == "text"</code> proves nothing, and neither does the phrase "I'm done".</li>
+        <li><b>A cap is a safety net, never the control.</b> <code>MAX_ITERATIONS</code> bounds runaway cost and logs a warning. It is not how the loop normally ends, and it is never the fix for an agent that stops too early.</li>
+      </ol>
+      <ol start="5">
+        <li><b>Do not force <code>tool_choice: "any"</code>.</b> It makes every response a tool call, so <code>end_turn</code> can never arrive and the loop runs until the cap fires.</li>
+        <li><b>Claude picks the tool.</b> Model-driven selection is the exam default because it adapts to unmapped cases. The one exception: deterministic compliance (financial, security, regulatory) is enforced in code, not left to the model. That is Task Statement 1.4.</li>
+        <li><b>Tool definition = name, description, input_schema.</b> The description is how Claude decides when to use it. Claude never runs your function; it returns a request and your loop dispatches by name.</li>
+        <li><b>The history is the whole input.</b> Every call resends the full <code>messages</code> list. There is no side memory, which is why the append matters and why input tokens grow each iteration.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="build">
+  <div class="sec-head">
+    <div class="eyebrow">The build exercise</div>
+    <h2>Six steps, one script</h2>
+    <p>The guide's build exercise adds the loop in six ordered steps. Each one lands in a specific place in the code and is covered by a figure or panel further down.</p>
+  </div>
+  <div class="steps">
+    <div class="row head"><span>#</span><span>Step</span><span>Where it lives</span><span>See</span></div>
+    <div class="row"><span class="n">1</span><span>Client plus two tools: <code>calculator</code> and a <code>web_search</code> stub</span><span><code>tools.py</code> 78–123 · <code>agent_loop.py</code> 44</span><span>Anatomy</span></div>
+    <div class="row"><span class="n">2</span><span>The <code>while True</code> loop that calls the API and reads <code>stop_reason</code></span><span><code>agent_loop.py</code> 113–141</span><span>Lifecycle flowchart</span></div>
+    <div class="row"><span class="n">3</span><span>Handle <code>tool_use</code>: run the tool, append both turns</span><span><code>agent_loop.py</code> 157–191</span><span>Message history growth · Key code</span></div>
+    <div class="row"><span class="n">4</span><span>Handle <code>end_turn</code>: return the text block</span><span><code>agent_loop.py</code> 149–155</span><span>Lifecycle flowchart · Key code</span></div>
+    <div class="row"><span class="n">5</span><span>A sequential prompt: the search result feeds the calculation</span><span><code>agent_loop.py</code> 111, 218</span><span>A real run</span></div>
+    <div class="row"><span class="n">6</span><span>Safety cap of 20 as a fallback, never primary control</span><span><code>agent_loop.py</code> 53, 119–128</span><span>Lifecycle flowchart · Key code · Trap 2</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="lifecycle">
+  <div class="sec-head">
+    <div class="eyebrow">Figure 1</div>
+    <h2>The loop as control flow</h2>
+    <p>One API call per iteration. The diamond is the only decision the code makes. The amber path returns into the message history, which is what makes this a loop rather than a single request.</p>
+  </div>
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1030 360" role="img" aria-label="Flowchart: user prompt goes into the messages list, which is sent to client.messages.create. The response's stop_reason is inspected. tool_use leads to finding the tool_use block, running the matching function, and appending two turns back into messages, then looping. end_turn leads to returning the text block. Any other value logs a warning and stops. A dashed safety cap check guards the edge before the API call.">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+        <marker id="arr-go" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--go)"/></marker>
+        <marker id="arr-done" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--done)"/></marker>
+        <marker id="arr-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker>
+      </defs>
+
+      <!-- main row, centre line y=200 -->
+      <rect class="box" x="16" y="176" width="112" height="48" rx="6"/>
+      <text x="72" y="205" text-anchor="middle">User prompt</text>
+      <line class="edge" x1="128" y1="200" x2="162" y2="200" marker-end="url(#arr)"/>
+
+      <rect class="box" x="168" y="176" width="140" height="48" rx="6"/>
+      <text class="mono" x="238" y="196" text-anchor="middle">messages[]</text>
+      <text class="tiny t-muted" x="238" y="213" text-anchor="middle">conversation history</text>
+      <line class="edge" x1="308" y1="200" x2="352" y2="200" marker-end="url(#arr)"/>
+
+      <rect class="box" x="358" y="168" width="210" height="64" rx="6"/>
+      <text class="mono" x="463" y="190" text-anchor="middle">client.messages.create(</text>
+      <text class="mono" x="463" y="205" text-anchor="middle">model, tools, messages)</text>
+      <text class="tiny t-muted" x="463" y="224" text-anchor="middle">one API call per iteration</text>
+      <line class="edge" x1="568" y1="200" x2="582" y2="200" marker-end="url(#arr)"/>
+
+      <!-- the decision -->
+      <polygon class="box-accent" points="668,150 748,200 668,250 588,200"/>
+      <text class="mono t-accent" x="668" y="197" text-anchor="middle" font-weight="500">stop_reason</text>
+      <text class="t-accent" x="668" y="214" text-anchor="middle">?</text>
+
+      <!-- end_turn exit -->
+      <line class="edge-done" x1="748" y1="200" x2="792" y2="200" marker-end="url(#arr-done)"/>
+      <text class="mono t-done" x="770" y="190" text-anchor="middle">end_turn</text>
+      <rect class="box-done" x="798" y="176" width="216" height="48" rx="6"/>
+      <text x="906" y="196" text-anchor="middle">find the text block</text>
+      <text class="mono" x="906" y="213" text-anchor="middle">return block.text</text>
+
+      <!-- tool_use exit: up, then back left, then down into messages[] -->
+      <line class="edge-go" x1="668" y1="150" x2="668" y2="116" marker-end="url(#arr-go)"/>
+      <text class="mono t-go" x="678" y="136">tool_use</text>
+      <rect class="box-go" x="578" y="62" width="180" height="48" rx="6"/>
+      <text x="668" y="82" text-anchor="middle">find the tool_use block</text>
+      <text class="mono" x="668" y="99" text-anchor="middle">id · name · input</text>
+      <line class="edge-go" x1="578" y1="86" x2="546" y2="86" marker-end="url(#arr-go)"/>
+
+      <rect class="box-go" x="340" y="62" width="200" height="48" rx="6"/>
+      <text x="440" y="82" text-anchor="middle">run the matching function</text>
+      <text class="mono" x="440" y="99" text-anchor="middle">TOOL_IMPLEMENTATIONS[name]</text>
+      <line class="edge-go" x1="340" y1="86" x2="312" y2="86" marker-end="url(#arr-go)"/>
+
+      <rect class="box-go" x="90" y="62" width="216" height="48" rx="6"/>
+      <text x="198" y="82" text-anchor="middle">append two turns</text>
+      <text class="mono" x="198" y="99" text-anchor="middle">assistant + user(tool_result)</text>
+      <path class="edge-go" d="M198 110 V143 H238 V170" marker-end="url(#arr-go)"/>
+      <text class="tiny t-go" x="250" y="152">next iteration</text>
+
+      <!-- other exit -->
+      <line class="edge-muted" x1="668" y1="250" x2="668" y2="284" marker-end="url(#arr-muted)"/>
+      <text class="tiny t-muted" x="678" y="272">anything else</text>
+      <rect class="box-muted" x="550" y="290" width="236" height="52" rx="6"/>
+      <text x="668" y="310" text-anchor="middle">log a warning, stop</text>
+      <text class="tiny t-muted" x="668" y="327" text-anchor="middle">max_tokens · refusal · pause_turn …</text>
+
+      <!-- safety cap guard on the edge before the API call -->
+      <rect class="box-muted" x="150" y="290" width="240" height="52" rx="6" stroke-dasharray="5 4"/>
+      <text x="270" y="308" text-anchor="middle">safety cap check</text>
+      <text class="mono" x="270" y="323" text-anchor="middle">iteration_count &gt;= MAX_ITERATIONS</text>
+      <text class="tiny t-muted" x="270" y="337" text-anchor="middle">safety net, never primary control</text>
+      <path class="edge-muted" d="M270 290 V262 H333 V210" marker-end="url(#arr-muted)"/>
+    </svg>
+    </div>
+    <div class="legend">
+      <span class="go"><i></i>continue: <code>tool_use</code></span>
+      <span class="done"><i></i>terminate: <code>end_turn</code></span>
+      <span class="acc"><i></i>the one decision</span>
+      <span class="mut"><i></i>guard rails, not control</span>
+    </div>
+    <figcaption>The four lifecycle steps from the notes: send the request, inspect <code>stop_reason</code>, execute tools or terminate, repeat. The cap check runs at the top of every iteration before the counter increments, so <code>MAX_ITERATIONS</code> is the maximum number of API calls the loop can ever make.</figcaption>
+  </figure>
+  <div class="callout">
+    <strong>Why the diamond is the whole exam.</strong> The questions test whether you branch on <code>stop_reason</code> or on something unreliable: the type of <code>content[0]</code>, a phrase like "I'm done", or a loop counter. Only the field is deterministic and unambiguous.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="history">
+  <div class="sec-head">
+    <div class="eyebrow">Figure 2</div>
+    <h2>How the message history grows</h2>
+    <p>Step 3 is where loops break. Each <code>tool_use</code> iteration appends two messages: Claude's own turn, then a user turn carrying the <code>tool_result</code>. Forget the append and Claude never sees what the tool returned, so it has nothing new to act on.</p>
+  </div>
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1060 330" role="img" aria-label="Three snapshots of the messages list for the real Bitcoin run. After the prompt there is one user message. After iteration one there are three: the prompt, an assistant message holding text plus a web_search tool_use, and a user message holding the tool_result with the same id. After iteration two there are five, adding a calculator tool_use and its tool_result. Amber brackets join each tool_use to its tool_result by id.">
+      <text class="mono t-muted" x="16" y="20">after the prompt · 1 message</text>
+      <text class="mono t-muted" x="366" y="20">after iteration 1 · 3 messages</text>
+      <text class="mono t-muted" x="716" y="20">after iteration 2 · 5 messages</text>
+
+      <!-- column 1 -->
+      <rect class="box" x="16" y="36" width="320" height="44" rx="5"/>
+      <rect class="tag" x="22" y="50" width="66" height="16" rx="3"/>
+      <text class="tiny" x="55" y="62" text-anchor="middle">user</text>
+      <text class="mono" x="98" y="54">"Search for the current price</text>
+      <text class="mono" x="98" y="69">of Bitcoin and calculate …"</text>
+
+      <!-- column 2 -->
+      <rect class="box" x="366" y="36" width="320" height="44" rx="5"/>
+      <rect class="tag" x="372" y="50" width="66" height="16" rx="3"/>
+      <text class="tiny" x="405" y="62" text-anchor="middle">user</text>
+      <text class="mono" x="448" y="54">"Search for the current price</text>
+      <text class="mono" x="448" y="69">of Bitcoin and calculate …"</text>
+
+      <rect class="box-accent" x="366" y="88" width="320" height="44" rx="5"/>
+      <rect class="tag" x="372" y="102" width="66" height="16" rx="3"/>
+      <text class="tiny" x="405" y="114" text-anchor="middle">assistant</text>
+      <text class="mono" x="448" y="106">text  "I'll search for the …"</text>
+      <text class="mono t-go" x="448" y="121">tool_use  web_search  id=…YMHD</text>
+
+      <rect class="box-accent" x="366" y="140" width="320" height="44" rx="5"/>
+      <rect class="tag" x="372" y="154" width="66" height="16" rx="3"/>
+      <text class="tiny" x="405" y="166" text-anchor="middle">user</text>
+      <text class="mono t-go" x="448" y="158">tool_result  tool_use_id=…YMHD</text>
+      <text class="mono" x="448" y="173">"…Bitcoin is $62,340 per coin."</text>
+      <path class="edge-go" d="M686 121 C 702 121, 702 158, 686 158"/>
+
+      <!-- column 3 -->
+      <rect class="box" x="716" y="36" width="320" height="44" rx="5"/>
+      <rect class="tag" x="722" y="50" width="66" height="16" rx="3"/>
+      <text class="tiny" x="755" y="62" text-anchor="middle">user</text>
+      <text class="mono" x="798" y="54">"Search for the current price</text>
+      <text class="mono" x="798" y="69">of Bitcoin and calculate …"</text>
+
+      <rect class="box" x="716" y="88" width="320" height="44" rx="5"/>
+      <rect class="tag" x="722" y="102" width="66" height="16" rx="3"/>
+      <text class="tiny" x="755" y="114" text-anchor="middle">assistant</text>
+      <text class="mono" x="798" y="106">text  "I'll search for the …"</text>
+      <text class="mono t-go" x="798" y="121">tool_use  web_search  id=…YMHD</text>
+
+      <rect class="box" x="716" y="140" width="320" height="44" rx="5"/>
+      <rect class="tag" x="722" y="154" width="66" height="16" rx="3"/>
+      <text class="tiny" x="755" y="166" text-anchor="middle">user</text>
+      <text class="mono t-go" x="798" y="158">tool_result  tool_use_id=…YMHD</text>
+      <text class="mono" x="798" y="173">"…Bitcoin is $62,340 per coin."</text>
+      <path class="edge-go" d="M1036 121 C 1052 121, 1052 158, 1036 158"/>
+
+      <rect class="box-accent" x="716" y="192" width="320" height="44" rx="5"/>
+      <rect class="tag" x="722" y="206" width="66" height="16" rx="3"/>
+      <text class="tiny" x="755" y="218" text-anchor="middle">assistant</text>
+      <text class="mono" x="798" y="210">text  "…$62,340. Now let me …"</text>
+      <text class="mono t-go" x="798" y="225">tool_use  calculator  id=…Gpd5</text>
+
+      <rect class="box-accent" x="716" y="244" width="320" height="44" rx="5"/>
+      <rect class="tag" x="722" y="258" width="66" height="16" rx="3"/>
+      <text class="tiny" x="755" y="270" text-anchor="middle">user</text>
+      <text class="mono t-go" x="798" y="262">tool_result  tool_use_id=…Gpd5</text>
+      <text class="mono" x="798" y="277">{"result": 218190.0}</text>
+      <path class="edge-go" d="M1036 225 C 1052 225, 1052 262, 1036 262"/>
+
+      <text class="tiny t-muted" x="16" y="312">iteration 3 answers with end_turn: returned to the caller, never appended</text>
+    </svg>
+    </div>
+    <div class="legend">
+      <span class="acc"><i></i>appended in this iteration</span>
+      <span class="go"><i></i>bracket: matched by <code>tool_use_id</code></span>
+    </div>
+    <figcaption>Real ids from the logged run, shortened. The <code>tool_use_id</code> on the result must equal the <code>id</code> on the request. That is how Claude knows which result answers which call, and it matters as soon as a response carries more than one <code>tool_use</code> block.</figcaption>
+  </figure>
+  <div class="callout go">
+    <strong>The history is the whole input.</strong> Every iteration resends the full list. That is why the tool result must be appended: there is no side channel, no memory, nothing Claude can see except what is in <code>messages</code>. It is also why input tokens climb each iteration in the trace below.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="trace">
+  <div class="sec-head">
+    <div class="eyebrow">From the log · 2026-09-16 20:35:23</div>
+    <h2>A real run, iteration by iteration</h2>
+    <p>Prompt: <em>"Search for the current price of Bitcoin and calculate what 3.5 coins would cost."</em> The prompt is designed so the second tool needs the first tool's output, which forces at least two <code>tool_use</code> iterations before <code>end_turn</code>. Nothing in the code says which tool runs when.</p>
+  </div>
+  <div class="trace">
+    <div class="step">
+      <div class="n">Iteration 1</div>
+      <span class="chip go">stop_reason: tool_use</span>
+      <div class="line">Claude writes "I'll search for the current Bitcoin price…" <em>and</em> requests <code>web_search("current Bitcoin price")</code> in the same response.</div>
+      <div class="line">Tool returns: "…$62,340 per coin."</div>
+      <div class="meta">1.36 s · in 724 · out 77 tokens</div>
+    </div>
+    <div class="step">
+      <div class="n">Iteration 2</div>
+      <span class="chip go">stop_reason: tool_use</span>
+      <div class="line">Claude reads the search result from history and requests <code>calculator("3.5 * 62340")</code>.</div>
+      <div class="line">Tool returns: <code>{"result": 218190.0}</code></div>
+      <div class="meta">1.35 s · in 931 · out 96 tokens</div>
+    </div>
+    <div class="step final">
+      <div class="n">Iteration 3</div>
+      <span class="chip done">stop_reason: end_turn</span>
+      <div class="line">Only a text block this time. The loop finds it, returns its <code>.text</code>, and exits.</div>
+      <div class="line">"3.5 Bitcoin would cost approximately $218,190."</div>
+      <div class="meta">1.15 s · in 1047 · out 59 tokens</div>
+    </div>
+    <div class="step">
+      <div class="n">Returned</div>
+      <span class="chip acc">iterations: 3</span>
+      <div class="line">Total 3.87 s. The cap of 20 was never approached. Termination came from <code>stop_reason</code> alone.</div>
+      <div class="line">Input tokens grew 724 → 931 → 1047 because the history grew.</div>
+    </div>
+  </div>
+
+  <h3>Contrast: what a cap trigger looks like</h3>
+  <p class="small muted">Earlier the same evening the cap was temporarily set to 2 to watch it fire. This is the failure the cap exists for, and it is also what the exam calls "cutting off useful work" when a cap is misused as the primary control.</p>
+  <div class="trace capped">
+    <div class="step">
+      <div class="n">Iteration 1</div>
+      <span class="chip go">tool_use</span>
+      <div class="line"><code>web_search</code> runs, result appended.</div>
+    </div>
+    <div class="step">
+      <div class="n">Iteration 2</div>
+      <span class="chip go">tool_use</span>
+      <div class="line"><code>calculator("3.5 * 62340")</code> runs, result appended.</div>
+    </div>
+    <div class="step warn">
+      <div class="n">Top of iteration 3</div>
+      <span class="chip stop">2 ≥ MAX_ITERATIONS</span>
+      <div class="line">Warning logged: "Safety cap reached: 2 iterations without an end_turn". The loop returns a placeholder. The answer was one call away.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="anatomy">
+  <div class="sec-head">
+    <div class="eyebrow">Anatomy</div>
+    <h2>What goes in, what comes back</h2>
+    <p>Two objects carry the exam's vocabulary: the tool definition you register, and the <code>Message</code> the API returns.</p>
+  </div>
+  <div class="two">
+    <div class="card">
+      <h3>Tool definition <span class="chip mut">tools.py 79–96</span></h3>
+<pre><code>{
+  <span class="s">"name"</span>: <span class="s">"calculator"</span>,
+  <span class="s">"description"</span>: <span class="s">"Evaluates a basic arithmetic expression (+, -, *, /, **) and returns the numeric result. Use this whenever the user asks for a calculation…"</span>,
+  <span class="s">"input_schema"</span>: {
+    <span class="s">"type"</span>: <span class="s">"object"</span>,
+    <span class="s">"properties"</span>: {
+      <span class="s">"expression"</span>: { <span class="s">"type"</span>: <span class="s">"string"</span>, <span class="s">"description"</span>: <span class="s">"A basic arithmetic expression, e.g. '12 * (3 + 4)'."</span> }
+    },
+    <span class="s">"required"</span>: [<span class="s">"expression"</span>]
+  }
+}</code></pre>
+      <dl>
+        <dt>name</dt><dd>What Claude echoes back in <code>tool_use.name</code>. The loop uses it as a dictionary key to find the Python function.</dd>
+        <dt>description</dt><dd>How Claude decides when to use it. This text drives model-driven selection, so it says when, not only what.</dd>
+        <dt>input_schema</dt><dd>JSON Schema with <code>type</code>, <code>properties</code>, <code>required</code>. Claude's <code>tool_use.input</code> conforms to it.</dd>
+      </dl>
+      <p class="small muted">Claude never runs <code>calculator()</code> itself. It returns a request; the loop dispatches it through <code>TOOL_IMPLEMENTATIONS[name]</code> and sends the result back.</p>
+    </div>
+    <div class="card">
+      <h3>Response, iteration 1 <span class="chip mut">from the log</span></h3>
+<pre><code>{
+  <span class="hl"><span class="s">"stop_reason"</span>: <span class="s">"tool_use"</span>,                                <span class="c"># the signal</span></span>
+  <span class="s">"content"</span>: [
+    { <span class="s">"type"</span>: <span class="s">"text"</span>,                                      <span class="c"># content[0]</span>
+      <span class="s">"text"</span>: <span class="s">"I'll search for the current Bitcoin price and then …"</span> },
+    { <span class="s">"type"</span>: <span class="s">"tool_use"</span>,                                  <span class="c"># content[1]</span>
+      <span class="s">"id"</span>: <span class="s">"toolu_01YMHD94EXuL9L6wQJhMBLuN"</span>,
+      <span class="s">"name"</span>: <span class="s">"web_search"</span>,
+      <span class="s">"input"</span>: { <span class="s">"query"</span>: <span class="s">"current Bitcoin price"</span> } }
+  ],
+  <span class="s">"usage"</span>: { <span class="s">"input_tokens"</span>: 724, <span class="s">"output_tokens"</span>: 77 },
+  <span class="s">"model"</span>: <span class="s">"claude-haiku-4-5-20251001"</span>, <span class="s">"role"</span>: <span class="s">"assistant"</span>
+}</code></pre>
+      <dl>
+        <dt>stop_reason</dt><dd>The authoritative signal. Here it says continue, even though the first content block is plain text.</dd>
+        <dt>content[]</dt><dd>A list of blocks, and a single response can mix <code>text</code> and <code>tool_use</code>. This response is the premature-termination bug in one object.</dd>
+        <dt>id</dt><dd>Goes back verbatim as <code>tool_use_id</code> on the result.</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="reasons">
+  <div class="sec-head">
+    <div class="eyebrow">Reference</div>
+    <h2>Every <code>stop_reason</code> a loop can meet</h2>
+    <p>The exam guide keys two values. The live API returns more, and a production loop handles them. The rule that covers all of them: anything other than <code>end_turn</code> means "not finished, check why", never "assume tool_use".</p>
+  </div>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Value</th><th>Scope</th><th>Meaning</th><th>What the loop does</th></tr></thead>
+    <tbody>
+      <tr><td><code>tool_use</code></td><td><span class="chip go">exam</span></td><td>Claude wants one or more tools called.</td><td>Run them, append results, call again.</td></tr>
+      <tr><td><code>end_turn</code></td><td><span class="chip done">exam</span></td><td>Claude has finished its work.</td><td>Extract the text block, return it, exit.</td></tr>
+      <tr><td><code>max_tokens</code></td><td><span class="chip mut">production</span></td><td>Output hit the <code>max_tokens</code> limit; the reply is truncated.</td><td>Raise the limit or continue the turn; do not treat as done.</td></tr>
+      <tr><td><code>pause_turn</code></td><td><span class="chip mut">production</span></td><td>A long-running server tool turn paused.</td><td>Send the response back to let Claude continue.</td></tr>
+      <tr><td><code>stop_sequence</code></td><td><span class="chip mut">production</span></td><td>A custom stop sequence you configured was hit.</td><td>Read <code>stop_sequence</code> on the response and act on it.</td></tr>
+      <tr><td><code>refusal</code></td><td><span class="chip mut">production</span></td><td>The model declined on an otherwise-normal 200 response.</td><td>Surface it; do not loop hoping for a tool call.</td></tr>
+      <tr><td><code>model_context_window_exceeded</code></td><td><span class="chip mut">production</span></td><td>The response filled the model's context window.</td><td>Handle like <code>max_tokens</code> truncation.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small muted">In this exercise the last five fall through to the "log a warning, stop" branch in Figure 1. That is the minimum a correct loop does with them: never confuse them with <code>end_turn</code>.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="decisions">
+  <div class="sec-head">
+    <div class="eyebrow">Concept</div>
+    <h2>Who decides which tool runs</h2>
+    <p>In the loop, Claude picks the tool from context. That is model-driven decision-making, and the exam favours it. There is one memorised exception.</p>
+  </div>
+  <div class="two">
+    <div class="card model">
+      <h3>Model-driven <span class="chip done">exam default</span></h3>
+      <ul>
+        <li>Claude reads the task, weighs the available tools, and chooses.</li>
+        <li>Adapts to situations the developer never mapped out.</li>
+        <li>Chains tools in orders nobody planned.</li>
+        <li>In this build: the prompt says "search, then calculate"; the code never says which tool runs when, and the run above chose search → calculator on its own.</li>
+      </ul>
+    </div>
+    <div class="card fixed">
+      <h3>Pre-configured <span class="chip mut">decision trees, fixed sequences</span></h3>
+      <ul>
+        <li>The developer hard-codes which tool runs at which step.</li>
+        <li>Breaks on edge cases outside the mapped paths.</li>
+        <li><strong>The exception worth memorising:</strong> when business logic demands deterministic compliance (financial operations, security checks, regulatory requirements), programmatic enforcement overrides the model's flexibility.</li>
+        <li>Covered in Task Statement 1.4, submodule 04, workflow enforcement and handoff.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="code">
+  <div class="sec-head">
+    <div class="eyebrow">The concept-to-code bridge</div>
+    <h2>The four pieces of code that matter</h2>
+    <p>Everything else in <code>agent_loop.py</code> is plumbing: env loading, logging, timing. These four excerpts are what the exam tests, each next to the trap it avoids.</p>
+  </div>
+
+  <div class="snip">
+<pre><code><span class="k">if</span> response.stop_reason == <span class="s">"end_turn"</span>:
+    text_block = <span class="k">next</span>(
+        (block <span class="k">for</span> block <span class="k">in</span> response.content <span class="k">if</span> block.type == <span class="s">"text"</span>),
+        <span class="k">None</span>,
+    )
+    final_text = text_block.text <span class="k">if</span> text_block <span class="k">else</span> <span class="s">""</span>
+    <span class="k">return</span> final_text, iteration_count</code></pre>
+    <div class="note">
+      <div class="where">agent_loop.py 149–155 · task step 4</div>
+      <div><strong>Terminate on the field, then search for the text.</strong> The branch condition is <code>stop_reason</code>. Only after that does the code look for a text block, and it searches the whole list rather than trusting position zero.</div>
+      <div class="avoids"><span class="chip stop">avoids trap 1</span> checking <code>content[0].type</code></div>
+    </div>
+  </div>
+
+  <div class="snip">
+<pre><code><span class="k">if</span> response.stop_reason == <span class="s">"tool_use"</span>:
+    tool_use_block = <span class="k">next</span>(
+        block <span class="k">for</span> block <span class="k">in</span> response.content <span class="k">if</span> block.type == <span class="s">"tool_use"</span>
+    )
+    tool_function = TOOL_IMPLEMENTATIONS[tool_use_block.name]
+    tool_result = tool_function(**tool_use_block.input)
+
+    messages.append({<span class="s">"role"</span>: <span class="s">"assistant"</span>, <span class="s">"content"</span>: response.content})
+    messages.append({
+        <span class="s">"role"</span>: <span class="s">"user"</span>,
+        <span class="s">"content"</span>: [{
+            <span class="s">"type"</span>: <span class="s">"tool_result"</span>,
+            <span class="s">"tool_use_id"</span>: tool_use_block.id,
+            <span class="s">"content"</span>: <span class="k">str</span>(tool_result),
+        }],
+    })
+    <span class="k">continue</span>  <span class="c"># loop again: Claude now responds using the result</span></code></pre>
+    <div class="note">
+      <div class="where">agent_loop.py 157–191 · task step 3</div>
+      <div><strong>The handoff.</strong> Find the block, dispatch by name, run it, then append <em>two</em> turns: Claude's full content as the assistant turn, and a user turn whose <code>tool_result</code> points back at the request's <code>id</code>. Then loop.</div>
+      <div class="avoids"><span class="chip stop">the step where loops break</span> results not appended means Claude never sees them</div>
+    </div>
+  </div>
+
+  <div class="snip">
+<pre><code>MAX_ITERATIONS = 20
+
+<span class="k">while</span> <span class="k">True</span>:
+    <span class="k">if</span> iteration_count &gt;= MAX_ITERATIONS:
+        logger.warning(<span class="s">f"Safety cap reached: {MAX_ITERATIONS} iterations without an end_turn"</span>)
+        <span class="k">return</span> <span class="s">f"Stopped after hitting the {MAX_ITERATIONS}-iteration safety cap…"</span>, iteration_count
+
+    iteration_count += 1
+    response = <span class="k">await</span> client.messages.create(...)</code></pre>
+    <div class="note">
+      <div class="where">agent_loop.py 53, 119–128 · task step 6</div>
+      <div><strong>A cap that is allowed to exist.</strong> It sits before the increment, warns rather than errors, and should never fire in normal operation. It bounds runaway cost; it does not decide when the work is done.</div>
+      <div class="avoids"><span class="chip stop">avoids trap 2</span> a cap as the primary stopping mechanism</div>
+    </div>
+  </div>
+
+  <div class="snip">
+<pre><code><span class="c"># Anything else (e.g. max_tokens, stop_sequence): stop and surface it.</span>
+logger.warning(<span class="s">f"Unhandled stop_reason: {response.stop_reason}"</span>)
+<span class="k">return</span> <span class="s">""</span>, iteration_count</code></pre>
+    <div class="note">
+      <div class="where">agent_loop.py 193–195</div>
+      <div><strong>Fall-through for the production values.</strong> Not <code>end_turn</code>, not <code>tool_use</code>, so the loop refuses to guess. A fuller loop would branch on each value in the reference table above.</div>
+      <div class="avoids"><span class="chip acc">rule</span> anything other than <code>end_turn</code> is "not finished, check why"</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="traps">
+  <div class="sec-head">
+    <div class="eyebrow">Exam traps</div>
+    <h2>Four traps and one distractor</h2>
+    <p>Each card is a wrong answer the exam will offer you, why it fails, and what the correct answer looks like. Open them one at a time and try to recall the "why" before reading it.</p>
+  </div>
+  <div class="trap-controls">
+    <button type="button" id="traps-open">Open all</button>
+    <button type="button" id="traps-close">Close all</button>
+  </div>
+
+  <details class="trap">
+    <summary>Trap 1 · Using <code>response.content[0].type == "text"</code> to decide the loop is finished</summary>
+    <div class="body">
+      <div class="row wrong"><b>Wrong</b><span>Treat a text block in position zero as "Claude is done" and return it to the user.</span></div>
+      <div class="row why"><b>Why</b><span>Claude can return text alongside <code>tool_use</code> blocks in the same response. Text presence says nothing about completion. Iteration 1 in the trace above is exactly this shape: text first, then a <code>web_search</code> request, with <code>stop_reason</code> still <code>tool_use</code>.</span></div>
+      <div class="row right"><b>Right</b><span>Branch on <code>stop_reason</code>. Continue on <code>tool_use</code>, terminate on <code>end_turn</code>, regardless of which block types appear.</span></div>
+      <div class="row why"><b>Worked</b><span>The guide's support-agent bug: the agent works for simple queries but stops mid-task on complex ones. Claude says "Let me look up your order" and requests <code>lookup_order</code>; the code sees text at index zero, concludes it is done, and returns an incomplete answer. The fix is a <code>stop_reason</code> check, not a cap, not a retry.</span></div>
+    </div>
+  </details>
+
+  <details class="trap">
+    <summary>Trap 2 · Setting "stop after 10 loops" as the primary stopping mechanism</summary>
+    <div class="body">
+      <div class="row wrong"><b>Wrong</b><span>Use an iteration cap as the main way the agent terminates.</span></div>
+      <div class="row why"><b>Why</b><span>It either cuts off useful work (a task that genuinely needs 12 iterations) or runs unnecessary iterations (a task done in 3). The model already signals completion. The capped run above shows the cut-off case: the answer was one call away.</span></div>
+      <div class="row right"><b>Right</b><span><code>stop_reason</code> is the primary control. A cap is acceptable only as a safety net against runaway loops, placed as in the code above and logged as a warning.</span></div>
+    </div>
+  </details>
+
+  <details class="trap">
+    <summary>Trap 3 · Parsing "I'm done" or "task complete" out of Claude's text</summary>
+    <div class="body">
+      <div class="row wrong"><b>Wrong</b><span>Scan the assistant text for a completion phrase and break the loop when you find one.</span></div>
+      <div class="row why"><b>Why</b><span>Natural language is ambiguous. "I've finished analysing the first file" can precede more files. The <code>stop_reason</code> field exists precisely to remove that ambiguity.</span></div>
+      <div class="row right"><b>Right</b><span>Never inspect text for control flow. Read the field.</span></div>
+    </div>
+  </details>
+
+  <details class="trap">
+    <summary>Trap 4 · Forcing <code>tool_choice</code> to <code>"any"</code> to stop the agent returning text</summary>
+    <div class="body">
+      <div class="row wrong"><b>Wrong</b><span>Set <code>tool_choice: {"type": "any"}</code> so every response is a tool call.</span></div>
+      <div class="row why"><b>Why</b><span>It forces a tool call even when the agent is genuinely finished, so <code>end_turn</code> can never arrive and the loop runs forever. Then the safety cap fires, which is the wrong reason to stop.</span></div>
+      <div class="row right"><b>Right</b><span>Leave tool choice to the model and let it signal completion naturally through <code>stop_reason</code>.</span></div>
+    </div>
+  </details>
+
+  <details class="trap">
+    <summary>Distractor · "Add an iteration cap" offered as the fix for premature termination</summary>
+    <div class="body">
+      <div class="row wrong"><b>Wrong</b><span>The agent stops early, so a plausible-looking answer proposes a cap or a retry count.</span></div>
+      <div class="row why"><b>Why</b><span>Caps address runaway loops, the opposite failure. Premature exit means the loop is reading the wrong signal, and a cap changes nothing about that.</span></div>
+      <div class="row right"><b>Right</b><span>The fix for premature termination is always to check <code>stop_reason</code> correctly. Reject cap-based answers to that question every time.</span></div>
+    </div>
+  </details>
+</section>
+
+<footer>
+  <div>Sources in this folder: <a href="notes.md">notes.md</a> · <a href="task.md">task.md</a> · <a href="agent_loop.py">agent_loop.py</a> · <a href="tools.py">tools.py</a>. Run trace from <code>logs/ccarf-practise-20260916.log</code>, 20:35:23 to 20:35:27.</div>
+  <div>Guide: <a href="https://claudecertificationguide.com/">claudecertificationguide.com</a>, Domain 1, Task Statement 1.1.</div>
+</footer>
+
+</main>
+</div>
+
+<script>
+  (function () {
+    // Open / close all trap cards.
+    var traps = document.querySelectorAll('details.trap');
+    var openBtn = document.getElementById('traps-open');
+    var closeBtn = document.getElementById('traps-close');
+    if (openBtn) openBtn.addEventListener('click', function () { traps.forEach(function (d) { d.open = true; }); });
+    if (closeBtn) closeBtn.addEventListener('click', function () { traps.forEach(function (d) { d.open = false; }); });
+
+    // Highlight the index entry for the section currently in view.
+    var links = Array.prototype.slice.call(document.querySelectorAll('.side nav a'));
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+    function setActive(id) {
+      links.forEach(function (a) { a.classList.remove('active'); });
+      if (byId[id]) byId[id].classList.add('active');
+    }
+    if ('IntersectionObserver' in window) {
+      var visible = {};
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { visible[e.target.id] = e.isIntersecting ? e.boundingClientRect.top : null; });
+        var best = null;
+        Object.keys(visible).forEach(function (id) {
+          if (visible[id] === null) return;
+          if (best === null || visible[id] < visible[best]) best = id;
+        });
+        if (best) setActive(best);
+      }, { rootMargin: '-10% 0px -60% 0px', threshold: 0 });
+      document.querySelectorAll('main section[id]').forEach(function (s) { io.observe(s); });
+    }
+    setActive('tldr');
+  })();
+</script>

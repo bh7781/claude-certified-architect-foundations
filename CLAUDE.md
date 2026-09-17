@@ -30,6 +30,11 @@ CCAR-F exam.
 - A single `requirements.txt` at the workspace root tracks dependencies for
   all exercises — add to it rather than creating per-exercise manifests,
   unless an exercise specifically needs isolation.
+- A submodule may also carry a `visual-guide.html`: a one-page interactive
+  study guide built from its notes, task, code and run log. Build or
+  rebuild one with the project skill `.claude/skills/visual-study-guide/`
+  (`/visual-study-guide`), which carries the template, figure recipes and
+  a checker script so every guide looks and behaves the same.
 - Each exercise gets one script named after the exercise itself (not per-step,
   e.g. `agent_loop.py`, not `step1_x.py`), since exercises are built up
   incrementally across multiple steps. Mark each step's code with a

@@ -1,0 +1,580 @@
+<title>{{TITLE}}</title>
+<!--
+  visual-study-guide template. Copy this file to <submodule>/visual-guide.html and
+  replace every {{PLACEHOLDER}} and every FILL comment. Keep the CSS, the section
+  ids and the sidebar structure exactly as they are: the checker and the other
+  guides depend on them. Components marked "repeat this block" are duplicated
+  as many times as the content needs; never invent new markup.
+-->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* ---------- tokens (light first, dark redefines only tokens) ---------- */
+  :root {
+    --bg: #F4F6F9;
+    --surface: #FFFFFF;
+    --ink: #1A1F27;
+    --muted: #5B6472;
+    --line: #D5DBE3;
+    --code-bg: #EDF0F4;
+    --accent: #2456C7;          /* the signal / the decision / newly added */
+    --accent-soft: rgba(36, 86, 199, 0.10);
+    --go: #A8650F;              /* continue / request / in progress */
+    --go-soft: rgba(168, 101, 15, 0.12);
+    --done: #22804F;            /* finished / result */
+    --done-soft: rgba(34, 128, 79, 0.12);
+    --stop: #B3402F;            /* traps, warnings, failures */
+    --stop-soft: rgba(179, 64, 47, 0.10);
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --display: "IBM Plex Sans Condensed", "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121519; --surface: #1A1E25; --ink: #E4E8EE; --muted: #98A2B0; --line: #2E3540; --code-bg: #0F1216;
+      --accent: #8AB0FF; --accent-soft: rgba(138, 176, 255, 0.14);
+      --go: #E5B15E; --go-soft: rgba(229, 177, 94, 0.16);
+      --done: #6CD09A; --done-soft: rgba(108, 208, 154, 0.16);
+      --stop: #F08A7A; --stop-soft: rgba(240, 138, 122, 0.14);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121519; --surface: #1A1E25; --ink: #E4E8EE; --muted: #98A2B0; --line: #2E3540; --code-bg: #0F1216;
+    --accent: #8AB0FF; --accent-soft: rgba(138, 176, 255, 0.14);
+    --go: #E5B15E; --go-soft: rgba(229, 177, 94, 0.16);
+    --done: #6CD09A; --done-soft: rgba(108, 208, 154, 0.16);
+    --stop: #F08A7A; --stop-soft: rgba(240, 138, 122, 0.14);
+  }
+
+  /* ---------- base ---------- */
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15.5px; line-height: 1.55; }
+  h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.15; margin: 0; }
+  h1 { font-size: 2.3rem; font-weight: 600; }
+  h2 { font-size: 1.5rem; font-weight: 600; }
+  h3 { font-size: 1.08rem; font-weight: 600; }
+  p { margin: 0; }
+  a { color: var(--accent); }
+  code, pre { font-family: var(--mono); }
+  code { font-size: 0.88em; background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 3px; }
+  pre { margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; font-size: 12.5px; line-height: 1.5; overflow-x: auto; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .k { color: var(--accent); }
+  .s { color: var(--done); }
+  .c { color: var(--muted); font-style: italic; }
+  .hl { background: var(--accent-soft); display: inline-block; width: 100%; }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .muted { color: var(--muted); }
+  .small { font-size: 13.5px; }
+
+  /* ---------- page frame: sticky index on the left, content on the right ---------- */
+  .wrap { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 40px; max-width: 1760px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 72px; }
+  .side { position: sticky; top: env(safe-area-inset-top, 0px); align-self: start; max-height: 100vh; overflow-y: auto; padding-block: 10px; display: grid; gap: 14px; align-content: start; }
+  .side .brand { display: grid; gap: 2px; }
+  .side .brand b { font-family: var(--display); font-size: 15px; font-weight: 600; }
+  .side nav { display: grid; }
+  .side nav a { display: block; padding: 6px 10px; border-left: 2px solid var(--line); color: var(--muted); text-decoration: none; font-size: 13.5px; line-height: 1.3; }
+  .side nav a:hover, .side nav a:focus-visible { color: var(--accent); outline: none; }
+  .side nav a.active { border-left-color: var(--accent); color: var(--ink); font-weight: 500; background: var(--accent-soft); }
+  .side .files { display: grid; gap: 4px; font-size: 12px; }
+  .side .files a { font-family: var(--mono); color: var(--muted); text-decoration: none; }
+  .side .files a:hover { color: var(--accent); }
+  main { display: grid; gap: 0; min-width: 0; }
+  @media (max-width: 900px) {
+    .wrap { grid-template-columns: 1fr; gap: 12px; }
+    .side { top: 0; z-index: 5; background: var(--bg); max-height: none; overflow: visible; padding-block: 6px; border-bottom: 1px solid var(--line); gap: 0; }
+    .side .brand, .side .files { display: none; }
+    .side nav { display: flex; overflow-x: auto; gap: 2px; -webkit-overflow-scrolling: touch; }
+    .side nav a { border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; padding: 6px 8px; }
+    .side nav a.active { border-bottom-color: var(--accent); background: none; }
+  }
+
+  /* ---------- header ---------- */
+  header { display: grid; gap: 10px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+  header .thesis { font-size: 1.12rem; }
+  header .thesis strong { color: var(--accent); }
+  .sources { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sources span { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; background: var(--surface); }
+
+  /* ---------- TL;DR ---------- */
+  .tldr { display: grid; gap: 14px; padding-block: 26px; border-bottom: 1px solid var(--line); }
+  .tldr .panel { background: var(--surface); border: 1px solid var(--accent); border-radius: 10px; padding: 18px 20px; display: grid; gap: 16px; }
+  .tldr .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 6px; font-size: 14px; }
+  .tldr .flow .node { font-family: var(--mono); font-size: 12.5px; border: 1.3px solid currentColor; border-radius: 6px; padding: 5px 10px; background: var(--code-bg); }
+  .tldr .flow .node.acc { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+  .tldr .flow .node.go { color: var(--go); background: var(--go-soft); }
+  .tldr .flow .node.done { color: var(--done); background: var(--done-soft); }
+  .tldr .flow .arrow { color: var(--muted); }
+  .tldr .flow .branch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 12px; border-left: 2px solid var(--line); }
+  .tldr .rule { font-family: var(--display); font-size: 1.25rem; font-weight: 600; color: var(--accent); }
+  .tldr ol { margin: 0; padding-left: 22px; display: grid; gap: 8px; font-size: 15px; }
+  .tldr ol li::marker { font-family: var(--mono); color: var(--muted); }
+  .tldr ol b { font-weight: 600; }
+  .tldr .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+  @media (max-width: 1100px) { .tldr .grid { grid-template-columns: 1fr; } }
+
+  /* ---------- sections ---------- */
+  section { display: grid; gap: 14px; padding-block: 34px; border-bottom: 1px solid var(--line); scroll-margin-top: 12px; }
+  section:last-of-type { border-bottom: 0; }
+  .sec-head { display: grid; gap: 4px; }
+  figure { margin: 0; display: grid; gap: 10px; }
+  .fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .fig-scroll svg { display: block; width: 100%; height: auto; min-width: 700px; }
+  figcaption { font-size: 13.5px; color: var(--muted); }
+  svg text { font-family: var(--sans); font-size: 12px; fill: currentColor; }
+  svg text.mono { font-family: var(--mono); font-size: 11px; }
+  svg text.tiny { font-size: 10.5px; }
+  svg .box { fill: var(--surface); stroke: currentColor; stroke-width: 1.2; }
+  svg .box-go { fill: var(--go-soft); stroke: var(--go); stroke-width: 1.4; }
+  svg .box-done { fill: var(--done-soft); stroke: var(--done); stroke-width: 1.4; }
+  svg .box-muted { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+  svg .box-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.8; }
+  svg .tag { fill: var(--code-bg); }
+  svg .edge { stroke: currentColor; stroke-width: 1.4; fill: none; }
+  svg .edge-go { stroke: var(--go); stroke-width: 1.6; fill: none; }
+  svg .edge-done { stroke: var(--done); stroke-width: 1.6; fill: none; }
+  svg .edge-muted { stroke: var(--muted); stroke-width: 1.3; fill: none; stroke-dasharray: 5 4; }
+  svg .t-go { fill: var(--go); }
+  svg .t-done { fill: var(--done); }
+  svg .t-muted { fill: var(--muted); }
+  svg .t-accent { fill: var(--accent); }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12.5px; color: var(--muted); }
+  .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; border: 1.5px solid; }
+  .legend .go i { border-color: var(--go); background: var(--go-soft); }
+  .legend .done i { border-color: var(--done); background: var(--done-soft); }
+  .legend .acc i { border-color: var(--accent); background: var(--accent-soft); }
+  .legend .mut i { border-color: var(--muted); border-style: dashed; }
+
+  /* ---------- callouts ---------- */
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 10px 14px; border-radius: 0 6px 6px 0; font-size: 14.5px; }
+  .callout.stop { border-color: var(--stop); background: var(--stop-soft); }
+  .callout.go { border-color: var(--go); background: var(--go-soft); }
+  .callout strong { font-weight: 600; }
+
+  /* ---------- tables ---------- */
+  .tbl-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  tr:last-child td { border-bottom: 0; }
+  td code { white-space: nowrap; }
+  .chip { display: inline-block; font-family: var(--mono); font-size: 11.5px; border-radius: 999px; padding: 1px 9px; border: 1px solid; white-space: nowrap; }
+  .chip.go { color: var(--go); border-color: var(--go); background: var(--go-soft); }
+  .chip.done { color: var(--done); border-color: var(--done); background: var(--done-soft); }
+  .chip.mut { color: var(--muted); border-color: var(--muted); }
+  .chip.stop { color: var(--stop); border-color: var(--stop); background: var(--stop-soft); }
+  .chip.acc { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+
+  /* ---------- trace timeline ---------- */
+  .trace { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .trace .step { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 6px; align-content: start; }
+  .trace .step.final { border-color: var(--done); }
+  .trace .step .n { font-family: var(--display); font-weight: 600; font-size: 15px; }
+  .trace .step .line { font-size: 13.5px; }
+  .trace .step .line code { font-size: 12px; }
+  .trace .step .meta { font-family: var(--mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .trace.capped { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .trace.capped .step.warn { border-color: var(--stop); background: var(--stop-soft); }
+  @media (max-width: 720px) { .trace, .trace.capped { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 440px) { .trace, .trace.capped { grid-template-columns: 1fr; } }
+
+  /* ---------- two-up cards ---------- */
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+  .card h3 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .card dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; font-size: 13.5px; }
+  .card dt { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  .card dd { margin: 0; }
+  .card.model { border-top: 3px solid var(--done); }
+  .card.fixed { border-top: 3px solid var(--muted); }
+  .card ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14.5px; }
+
+  /* ---------- annotated snippets ---------- */
+  .snip { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start; }
+  @media (max-width: 760px) { .snip { grid-template-columns: 1fr; } }
+  .snip .note { display: grid; gap: 8px; font-size: 14.5px; padding-top: 4px; }
+  .snip .note .where { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .snip .note .avoids { font-size: 13.5px; }
+
+  /* ---------- traps ---------- */
+  details.trap { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--stop); border-radius: 6px; }
+  details.trap summary { cursor: pointer; padding: 12px 14px; font-weight: 500; list-style: none; display: flex; gap: 10px; align-items: baseline; }
+  details.trap summary::-webkit-details-marker { display: none; }
+  details.trap summary::before { content: "+"; font-family: var(--mono); color: var(--stop); width: 12px; flex: none; }
+  details.trap[open] summary::before { content: "\2212"; }
+  details.trap summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+  details.trap .body { padding: 0 14px 14px 36px; display: grid; gap: 8px; font-size: 14.5px; }
+  details.trap .body .row { display: grid; grid-template-columns: 76px 1fr; gap: 10px; }
+  details.trap .body .row b { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 500; padding-top: 3px; }
+  details.trap .body .row.wrong b { color: var(--stop); }
+  details.trap .body .row.why b { color: var(--muted); }
+  details.trap .body .row.right b { color: var(--done); }
+  .trap-controls { display: flex; gap: 8px; }
+  .trap-controls button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .trap-controls button:hover { border-color: var(--accent); color: var(--accent); }
+  .trap-controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- steps map ---------- */
+  .steps { display: grid; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .steps .row { display: grid; grid-template-columns: 34px minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1.4fr); gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; align-items: baseline; }
+  .steps .row:last-child { border-bottom: 0; }
+  .steps .row.head { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .steps .row .n { font-family: var(--display); font-weight: 600; color: var(--accent); }
+  @media (max-width: 640px) { .steps .row { grid-template-columns: 30px 1fr; } .steps .row span:nth-child(n+3) { grid-column: 2; font-size: 12.5px; color: var(--muted); } }
+
+  footer { padding-top: 24px; font-size: 13px; color: var(--muted); display: grid; gap: 6px; }
+</style>
+
+<div class="wrap">
+
+<aside class="side" aria-label="Page index">
+  <div class="brand">
+    <span class="eyebrow">CCAR-F · Domain {{DOMAIN_NUMBER}} · {{SUBMODULE_NUMBER}}</span>
+    <b>{{TITLE}}</b>
+  </div>
+  <nav>
+    <!-- One link per section, same order as the sections. Remove a link only together with its section. -->
+    <a href="#tldr">TL;DR</a>
+    <a href="#build">The build in {{STEP_COUNT_WORD}} steps</a>
+    <a href="#lifecycle">{{FIGURE_1_SHORT_NAME}}</a>
+    <a href="#history">{{FIGURE_2_SHORT_NAME}}</a>
+    <a href="#trace">A real run</a>
+    <a href="#anatomy">Anatomy</a>
+    <a href="#reasons">{{REFERENCE_SHORT_NAME}}</a>
+    <a href="#decisions">{{DECISION_SHORT_NAME}}</a>
+    <a href="#code">Key code</a>
+    <a href="#traps">Exam traps</a>
+  </nav>
+  <div class="files">
+    <span class="eyebrow">Sources</span>
+    <a href="notes.md">notes.md</a>
+    <a href="task.md">task.md</a>
+    <!-- FILL: one link per code file in the submodule folder -->
+    <a href="{{SCRIPT_FILE}}">{{SCRIPT_FILE}}</a>
+  </div>
+</aside>
+
+<main>
+
+<header>
+  <div class="eyebrow">CCAR-F · Domain {{DOMAIN_NUMBER}} · {{DOMAIN_NAME}} · Submodule {{SUBMODULE_NUMBER}} · Task Statement {{TASK_STATEMENT}}</div>
+  <h1>{{TITLE}}</h1>
+  <p class="thesis"><!-- FILL: one to three sentences. Name the mechanism and the one thing that controls it; wrap that one thing in <strong><code>...</code></strong>. -->{{THESIS}}</p>
+  <div class="sources">
+    <span>notes.md</span><span>task.md</span><span>{{SCRIPT_FILE}}</span><span>logs · {{LOG_DATE}} run</span>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<section id="tldr" class="tldr">
+  <div class="sec-head">
+    <div class="eyebrow">TL;DR</div>
+    <h2>If you remember nothing else</h2>
+  </div>
+  <div class="panel">
+    <div class="rule"><!-- FILL: the single most important rule, one sentence. -->{{THE_ONE_RULE}}</div>
+    <div class="flow" aria-label="The mechanism in one line">
+      <!-- FILL: the mechanism as chips. Plain .node for stages, .node.acc for the decision or signal,
+           .node.go / .node.done for the branches inside .branch spans. Keep it to one line of stages. -->
+      <span class="node">{{STAGE_1}}</span><span class="arrow">→</span>
+      <span class="node">{{STAGE_2}}</span><span class="arrow">→</span>
+      <span class="node acc">{{DECISION}}</span>
+      <span class="branch">
+        <span class="node go">{{BRANCH_A_VALUE}}</span><span class="arrow">→</span><span>{{BRANCH_A_ACTION}}</span>
+      </span>
+      <span class="branch">
+        <span class="node done">{{BRANCH_B_VALUE}}</span><span class="arrow">→</span><span>{{BRANCH_B_ACTION}}</span>
+      </span>
+    </div>
+    <div class="grid">
+      <ol>
+        <!-- FILL: 5 to 8 points split across the two lists. Each: <b>claim in five words or fewer.</b> then one or two testable sentences. -->
+        <li><b>{{POINT_1_CLAIM}}.</b> {{POINT_1_DETAIL}}</li>
+        <li><b>{{POINT_2_CLAIM}}.</b> {{POINT_2_DETAIL}}</li>
+        <li><b>{{POINT_3_CLAIM}}.</b> {{POINT_3_DETAIL}}</li>
+        <li><b>{{POINT_4_CLAIM}}.</b> {{POINT_4_DETAIL}}</li>
+      </ol>
+      <ol start="5">
+        <li><b>{{POINT_5_CLAIM}}.</b> {{POINT_5_DETAIL}}</li>
+        <li><b>{{POINT_6_CLAIM}}.</b> {{POINT_6_DETAIL}}</li>
+        <li><b>{{POINT_7_CLAIM}}.</b> {{POINT_7_DETAIL}}</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="build">
+  <div class="sec-head">
+    <div class="eyebrow">The build exercise</div>
+    <h2>{{STEP_COUNT_WORD}} steps, one script</h2>
+    <p>The guide's build exercise adds the mechanism in {{STEP_COUNT_WORD}} ordered steps. Each one lands in a specific place in the code and is covered by a figure or panel further down.</p>
+  </div>
+  <div class="steps">
+    <div class="row head"><span>#</span><span>Step</span><span>Where it lives</span><span>See</span></div>
+    <!-- repeat this block: one row per task.md step -->
+    <div class="row"><span class="n">1</span><span>{{STEP_1_TITLE}}</span><span><code>{{SCRIPT_FILE}}</code> {{STEP_1_LINES}}</span><span>{{STEP_1_SECTION}}</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="lifecycle">
+  <div class="sec-head">
+    <div class="eyebrow">Figure 1</div>
+    <h2>{{FIGURE_1_HEADING}}</h2>
+    <p>{{FIGURE_1_INTRO}}</p>
+  </div>
+  <figure>
+    <div class="fig-scroll">
+    <!-- FILL: draw the mechanism with a pattern from references/svg-recipes.md. Size every box from its longest label. -->
+    <svg viewBox="0 0 1030 360" role="img" aria-label="{{FIGURE_1_CLAIM}}">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+        <marker id="arr-go" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--go)"/></marker>
+        <marker id="arr-done" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--done)"/></marker>
+        <marker id="arr-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker>
+      </defs>
+      <rect class="box" x="16" y="176" width="112" height="48" rx="6"/>
+      <text x="72" y="205" text-anchor="middle">{{NODE}}</text>
+      <line class="edge" x1="128" y1="200" x2="162" y2="200" marker-end="url(#arr)"/>
+      <!-- ... continue with the chosen pattern ... -->
+    </svg>
+    </div>
+    <div class="legend">
+      <span class="go"><i></i>{{LEGEND_GO}}</span>
+      <span class="done"><i></i>{{LEGEND_DONE}}</span>
+      <span class="acc"><i></i>{{LEGEND_ACCENT}}</span>
+      <span class="mut"><i></i>{{LEGEND_MUTED}}</span>
+    </div>
+    <figcaption>{{FIGURE_1_CAPTION}}</figcaption>
+  </figure>
+  <div class="callout">
+    <strong>{{FIGURE_1_CALLOUT_LEAD}}.</strong> {{FIGURE_1_CALLOUT_BODY}}
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="history">
+  <div class="sec-head">
+    <div class="eyebrow">Figure 2</div>
+    <h2>{{FIGURE_2_HEADING}}</h2>
+    <p>{{FIGURE_2_INTRO}}</p>
+  </div>
+  <figure>
+    <div class="fig-scroll">
+    <!-- FILL: draw the state or data with a pattern from references/svg-recipes.md (usually Pattern B). Marker ids are document-wide, so reuse #arr etc. from Figure 1. -->
+    <svg viewBox="0 0 1060 330" role="img" aria-label="{{FIGURE_2_CLAIM}}">
+      <text class="mono t-muted" x="16" y="20">{{COLUMN_1_HEADING}}</text>
+      <rect class="box" x="16" y="36" width="320" height="44" rx="5"/>
+      <rect class="tag" x="22" y="50" width="66" height="16" rx="3"/>
+      <text class="tiny" x="55" y="62" text-anchor="middle">{{ROLE}}</text>
+      <text class="mono" x="98" y="54">{{LINE_1}}</text>
+      <text class="mono" x="98" y="69">{{LINE_2}}</text>
+      <!-- ... more blocks at y = 88, 140, 192, 244 ... -->
+    </svg>
+    </div>
+    <div class="legend">
+      <span class="acc"><i></i>{{LEGEND_ACCENT_2}}</span>
+      <span class="go"><i></i>{{LEGEND_GO_2}}</span>
+    </div>
+    <figcaption>{{FIGURE_2_CAPTION}}</figcaption>
+  </figure>
+  <div class="callout go">
+    <strong>{{FIGURE_2_CALLOUT_LEAD}}.</strong> {{FIGURE_2_CALLOUT_BODY}}
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="trace">
+  <div class="sec-head">
+    <div class="eyebrow">From the log · {{LOG_DATE}} {{LOG_TIME}}</div>
+    <h2>A real run, {{TRACE_UNIT}} by {{TRACE_UNIT}}</h2>
+    <p>Prompt: <em>"{{PROMPT}}"</em> {{TRACE_INTRO}}</p>
+  </div>
+  <div class="trace">
+    <!-- repeat this block: one card per iteration or stage; add class="final" on the last successful one -->
+    <div class="step">
+      <div class="n">{{STAGE_NAME}}</div>
+      <span class="chip go">{{STATUS_OR_STOP_REASON}}</span>
+      <div class="line">{{WHAT_WAS_REQUESTED}}</div>
+      <div class="line">{{WHAT_CAME_BACK}}</div>
+      <div class="meta">{{SECONDS}} s · in {{INPUT_TOKENS}} · out {{OUTPUT_TOKENS}} tokens</div>
+    </div>
+    <div class="step">
+      <div class="n">Returned</div>
+      <span class="chip acc">{{SUMMARY_CHIP}}</span>
+      <div class="line">{{RETURNED_SUMMARY}}</div>
+    </div>
+  </div>
+
+  <!-- Optional contrast strip: keep only when the log holds a failing or edge run. -->
+  <h3>Contrast: {{CONTRAST_HEADING}}</h3>
+  <p class="small muted">{{CONTRAST_INTRO}}</p>
+  <div class="trace capped">
+    <div class="step">
+      <div class="n">{{C_STAGE_1}}</div>
+      <span class="chip go">{{C_STATUS_1}}</span>
+      <div class="line">{{C_LINE_1}}</div>
+    </div>
+    <div class="step warn">
+      <div class="n">{{C_STAGE_FAIL}}</div>
+      <span class="chip stop">{{C_STATUS_FAIL}}</span>
+      <div class="line">{{C_LINE_FAIL}}</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="anatomy">
+  <div class="sec-head">
+    <div class="eyebrow">Anatomy</div>
+    <h2>What goes in, what comes back</h2>
+    <p>{{ANATOMY_INTRO}}</p>
+  </div>
+  <div class="two">
+    <!-- repeat this block: one card per object (two or three). Show real values from the file or log. -->
+    <div class="card">
+      <h3>{{OBJECT_NAME}} <span class="chip mut">{{OBJECT_SOURCE}}</span></h3>
+<pre><code>{
+  <span class="s">"field"</span>: <span class="s">"value"</span>,           <span class="c"># annotation</span>
+  <span class="hl"><span class="s">"the_signal"</span>: <span class="s">"value"</span>,        <span class="c"># highlighted line</span></span>
+}</code></pre>
+      <dl>
+        <dt>{{FIELD_1}}</dt><dd>{{FIELD_1_MEANING}}</dd>
+        <dt>{{FIELD_2}}</dt><dd>{{FIELD_2_MEANING}}</dd>
+      </dl>
+      <p class="small muted">{{OBJECT_NOTE}}</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="reasons">
+  <div class="sec-head">
+    <div class="eyebrow">Reference</div>
+    <h2>{{REFERENCE_HEADING}}</h2>
+    <p>{{REFERENCE_INTRO}}</p>
+  </div>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>{{COL_1}}</th><th>Scope</th><th>{{COL_3}}</th><th>{{COL_4}}</th></tr></thead>
+    <tbody>
+      <!-- repeat this block: chip go/done for exam-keyed rows, chip mut for production-only rows -->
+      <tr><td><code>{{VALUE}}</code></td><td><span class="chip go">exam</span></td><td>{{MEANING}}</td><td>{{ACTION}}</td></tr>
+      <tr><td><code>{{VALUE_2}}</code></td><td><span class="chip mut">production</span></td><td>{{MEANING_2}}</td><td>{{ACTION_2}}</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small muted">{{REFERENCE_NOTE}}</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="decisions">
+  <div class="sec-head">
+    <div class="eyebrow">Concept</div>
+    <h2>{{DECISION_HEADING}}</h2>
+    <p>{{DECISION_INTRO}}</p>
+  </div>
+  <div class="two">
+    <div class="card model">
+      <h3>{{OPTION_A}} <span class="chip done">exam default</span></h3>
+      <ul>
+        <li>{{OPTION_A_POINT_1}}</li>
+        <li>{{OPTION_A_POINT_2}}</li>
+        <li>{{OPTION_A_IN_THIS_BUILD}}</li>
+      </ul>
+    </div>
+    <div class="card fixed">
+      <h3>{{OPTION_B}} <span class="chip mut">{{OPTION_B_QUALIFIER}}</span></h3>
+      <ul>
+        <li>{{OPTION_B_POINT_1}}</li>
+        <li><strong>The exception worth memorising:</strong> {{THE_EXCEPTION}}</li>
+        <li>{{CROSS_REFERENCE}}</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="code">
+  <div class="sec-head">
+    <div class="eyebrow">The concept-to-code bridge</div>
+    <h2>The {{SNIPPET_COUNT_WORD}} pieces of code that matter</h2>
+    <p>Everything else in <code>{{SCRIPT_FILE}}</code> is plumbing: env loading, logging, timing. These excerpts are what the exam tests, each next to the trap or concept it connects to.</p>
+  </div>
+
+  <!-- repeat this block: three to five snippets. Copy code verbatim; mark keywords .k, strings .s, comments .c. -->
+  <div class="snip">
+<pre><code><span class="k">if</span> obj.field == <span class="s">"value"</span>:
+    <span class="k">return</span> result  <span class="c"># verbatim comment from the file</span></code></pre>
+    <div class="note">
+      <div class="where">{{SCRIPT_FILE}} {{LINES}} · task step {{STEP}}</div>
+      <div><strong>{{SNIPPET_LEAD}}.</strong> {{SNIPPET_EXPLANATION}}</div>
+      <div class="avoids"><span class="chip stop">avoids trap {{N}}</span> {{TRAP_SHORT}}</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="traps">
+  <div class="sec-head">
+    <div class="eyebrow">Exam traps</div>
+    <h2>{{TRAP_COUNT_HEADING}}</h2>
+    <p>Each card is a wrong answer the exam will offer you, why it fails, and what the correct answer looks like. Open them one at a time and try to recall the "why" before reading it.</p>
+  </div>
+  <div class="trap-controls">
+    <button type="button" id="traps-open">Open all</button>
+    <button type="button" id="traps-close">Close all</button>
+  </div>
+
+  <!-- repeat this block: one per trap in notes.md, then one titled "Distractor" -->
+  <details class="trap">
+    <summary>Trap 1 · {{TRAP_1_TITLE}}</summary>
+    <div class="body">
+      <div class="row wrong"><b>Wrong</b><span>{{TRAP_1_WRONG}}</span></div>
+      <div class="row why"><b>Why</b><span>{{TRAP_1_WHY}}</span></div>
+      <div class="row right"><b>Right</b><span>{{TRAP_1_RIGHT}}</span></div>
+    </div>
+  </details>
+</section>
+
+<footer>
+  <div>Sources in this folder: <a href="notes.md">notes.md</a> · <a href="task.md">task.md</a> · <a href="{{SCRIPT_FILE}}">{{SCRIPT_FILE}}</a>. Run trace from <code>logs/{{LOG_FILE}}</code>, {{LOG_WINDOW}}.</div>
+  <div>Guide: <a href="https://claudecertificationguide.com/">claudecertificationguide.com</a>, Domain {{DOMAIN_NUMBER}}, Task Statement {{TASK_STATEMENT}}.</div>
+</footer>
+
+</main>
+</div>
+
+<script>
+  (function () {
+    // Open / close all trap cards.
+    var traps = document.querySelectorAll('details.trap');
+    var openBtn = document.getElementById('traps-open');
+    var closeBtn = document.getElementById('traps-close');
+    if (openBtn) openBtn.addEventListener('click', function () { traps.forEach(function (d) { d.open = true; }); });
+    if (closeBtn) closeBtn.addEventListener('click', function () { traps.forEach(function (d) { d.open = false; }); });
+
+    // Highlight the index entry for the section currently in view.
+    var links = Array.prototype.slice.call(document.querySelectorAll('.side nav a'));
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+    function setActive(id) {
+      links.forEach(function (a) { a.classList.remove('active'); });
+      if (byId[id]) byId[id].classList.add('active');
+    }
+    if ('IntersectionObserver' in window) {
+      var visible = {};
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { visible[e.target.id] = e.isIntersecting ? e.boundingClientRect.top : null; });
+        var best = null;
+        Object.keys(visible).forEach(function (id) {
+          if (visible[id] === null) return;
+          if (best === null || visible[id] < visible[best]) best = id;
+        });
+        if (best) setActive(best);
+      }, { rootMargin: '-10% 0px -60% 0px', threshold: 0 });
+      document.querySelectorAll('main section[id]').forEach(function (s) { io.observe(s); });
+    }
+    setActive('tldr');
+  })();
+</script>
