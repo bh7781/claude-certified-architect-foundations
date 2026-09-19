@@ -71,9 +71,22 @@ For each one:
   function — use the logger object itself so any level can be used.
 - Console output only shows the plain message (INFO and above) — no
   timestamps/metadata clutter on screen.
-- The log file (`logs/ccarf-practise-YYYYMMDD.log`, gitignored, rotates at
-  10MB) captures everything from DEBUG up, one line per call, formatted as:
+- The log file is written next to the exercise script that's running,
+  named after it (e.g. `agent_loop.log` inside
+  `01-agentic-architecture-and-orchestration/01-agentic-loops/`) — not in a
+  shared workspace-level `logs/` folder. It captures everything from DEBUG
+  up, one line per call, formatted as:
   `timestamp | level | file:line | function() | memory | message`.
+- By default each run overwrites that file from scratch (`configure(append=False)`,
+  applied automatically), so it always reflects only the latest run — this
+  is intentional and the file is **not** gitignored, since it's meant to be
+  committed alongside the exercise as a record of that one run. To instead
+  keep appending across runs and only rotate once the file hits 10MB (up to
+  5 backups), call `configure(append=True)` right after
+  `from utils.logger import logger, configure`, before any logging calls.
+- The logger redacts anything matching an Anthropic API key pattern
+  (`sk-ant-...`) from every message before it's written, so a key can never
+  end up on screen or in a committed log file.
 - `utils/message_parser.py`'s `format_message(obj)` fully pretty-prints an
   Anthropic `Message` response (every field, nothing summarized/dropped),
   wrapped in `---` divider lines so it's easy to spot in the log. It returns

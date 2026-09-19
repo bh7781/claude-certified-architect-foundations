@@ -1,0 +1,833 @@
+<title>Hub and Spoke Orchestration</title>
+<!--
+  visual-study-guide for 01-agentic-architecture-and-orchestration/02-multi-agent-orchestration.
+  Sources: notes.md, task.md, coordinator.py, coordinator.log (run 2026-09-17 19:40:35-19:40:58).
+-->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* ---------- tokens (light first, dark redefines only tokens) ---------- */
+  :root {
+    --bg: #F4F6F9;
+    --surface: #FFFFFF;
+    --ink: #1A1F27;
+    --muted: #5B6472;
+    --line: #D5DBE3;
+    --code-bg: #EDF0F4;
+    --accent: #2456C7;          /* the signal / the decision / newly added */
+    --accent-soft: rgba(36, 86, 199, 0.10);
+    --go: #A8650F;              /* continue / request / in progress */
+    --go-soft: rgba(168, 101, 15, 0.12);
+    --done: #22804F;            /* finished / result */
+    --done-soft: rgba(34, 128, 79, 0.12);
+    --stop: #B3402F;            /* traps, warnings, failures */
+    --stop-soft: rgba(179, 64, 47, 0.10);
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --display: "IBM Plex Sans Condensed", "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121519; --surface: #1A1E25; --ink: #E4E8EE; --muted: #98A2B0; --line: #2E3540; --code-bg: #0F1216;
+      --accent: #8AB0FF; --accent-soft: rgba(138, 176, 255, 0.14);
+      --go: #E5B15E; --go-soft: rgba(229, 177, 94, 0.16);
+      --done: #6CD09A; --done-soft: rgba(108, 208, 154, 0.16);
+      --stop: #F08A7A; --stop-soft: rgba(240, 138, 122, 0.14);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121519; --surface: #1A1E25; --ink: #E4E8EE; --muted: #98A2B0; --line: #2E3540; --code-bg: #0F1216;
+    --accent: #8AB0FF; --accent-soft: rgba(138, 176, 255, 0.14);
+    --go: #E5B15E; --go-soft: rgba(229, 177, 94, 0.16);
+    --done: #6CD09A; --done-soft: rgba(108, 208, 154, 0.16);
+    --stop: #F08A7A; --stop-soft: rgba(240, 138, 122, 0.14);
+  }
+
+  /* ---------- base ---------- */
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15.5px; line-height: 1.55; }
+  h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.15; margin: 0; }
+  h1 { font-size: 2.3rem; font-weight: 600; }
+  h2 { font-size: 1.5rem; font-weight: 600; }
+  h3 { font-size: 1.08rem; font-weight: 600; }
+  p { margin: 0; }
+  a { color: var(--accent); }
+  code, pre { font-family: var(--mono); }
+  code { font-size: 0.88em; background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 3px; }
+  pre { margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; font-size: 12.5px; line-height: 1.5; overflow-x: auto; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .k { color: var(--accent); }
+  .s { color: var(--done); }
+  .c { color: var(--muted); font-style: italic; }
+  .hl { background: var(--accent-soft); display: inline-block; width: 100%; }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .muted { color: var(--muted); }
+  .small { font-size: 13.5px; }
+
+  /* ---------- page frame: sticky index on the left, content on the right ---------- */
+  .wrap { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 40px; max-width: 1760px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 72px; }
+  .side { position: sticky; top: env(safe-area-inset-top, 0px); align-self: start; max-height: 100vh; overflow-y: auto; padding-block: 10px; display: grid; gap: 14px; align-content: start; }
+  .side .brand { display: grid; gap: 2px; }
+  .side .brand b { font-family: var(--display); font-size: 15px; font-weight: 600; }
+  .side nav { display: grid; }
+  .side nav a { display: block; padding: 6px 10px; border-left: 2px solid var(--line); color: var(--muted); text-decoration: none; font-size: 13.5px; line-height: 1.3; }
+  .side nav a:hover, .side nav a:focus-visible { color: var(--accent); outline: none; }
+  .side nav a.active { border-left-color: var(--accent); color: var(--ink); font-weight: 500; background: var(--accent-soft); }
+  .side .files { display: grid; gap: 4px; font-size: 12px; }
+  .side .files a { font-family: var(--mono); color: var(--muted); text-decoration: none; }
+  .side .files a:hover { color: var(--accent); }
+  main { display: grid; gap: 0; min-width: 0; }
+  @media (max-width: 900px) {
+    .wrap { grid-template-columns: 1fr; gap: 12px; }
+    .side { top: 0; z-index: 5; background: var(--bg); max-height: none; overflow: visible; padding-block: 6px; border-bottom: 1px solid var(--line); gap: 0; }
+    .side .brand, .side .files { display: none; }
+    .side nav { display: flex; overflow-x: auto; gap: 2px; -webkit-overflow-scrolling: touch; }
+    .side nav a { border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; padding: 6px 8px; }
+    .side nav a.active { border-bottom-color: var(--accent); background: none; }
+  }
+
+  /* ---------- header ---------- */
+  header { display: grid; gap: 10px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+  header .thesis { font-size: 1.12rem; }
+  header .thesis strong { color: var(--accent); }
+  .sources { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sources span { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; background: var(--surface); }
+
+  /* ---------- TL;DR ---------- */
+  .tldr { display: grid; gap: 14px; padding-block: 26px; border-bottom: 1px solid var(--line); }
+  .tldr .panel { background: var(--surface); border: 1px solid var(--accent); border-radius: 10px; padding: 18px 20px; display: grid; gap: 16px; }
+  .tldr .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 6px; font-size: 14px; }
+  .tldr .flow .node { font-family: var(--mono); font-size: 12.5px; border: 1.3px solid currentColor; border-radius: 6px; padding: 5px 10px; background: var(--code-bg); }
+  .tldr .flow .node.acc { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+  .tldr .flow .node.go { color: var(--go); background: var(--go-soft); }
+  .tldr .flow .node.done { color: var(--done); background: var(--done-soft); }
+  .tldr .flow .arrow { color: var(--muted); }
+  .tldr .flow .branch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 12px; border-left: 2px solid var(--line); }
+  .tldr .rule { font-family: var(--display); font-size: 1.25rem; font-weight: 600; color: var(--accent); }
+  .tldr ol { margin: 0; padding-left: 22px; display: grid; gap: 8px; font-size: 15px; }
+  .tldr ol li::marker { font-family: var(--mono); color: var(--muted); }
+  .tldr ol b { font-weight: 600; }
+  .tldr .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+  @media (max-width: 1100px) { .tldr .grid { grid-template-columns: 1fr; } }
+
+  /* ---------- sections ---------- */
+  section { display: grid; gap: 14px; padding-block: 34px; border-bottom: 1px solid var(--line); scroll-margin-top: 12px; }
+  section:last-of-type { border-bottom: 0; }
+  .sec-head { display: grid; gap: 4px; }
+  figure { margin: 0; display: grid; gap: 10px; }
+  .fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .fig-scroll svg { display: block; width: 100%; height: auto; min-width: 700px; }
+  figcaption { font-size: 13.5px; color: var(--muted); }
+  svg text { font-family: var(--sans); font-size: 12px; fill: currentColor; }
+  svg text.mono { font-family: var(--mono); font-size: 11px; }
+  svg text.tiny { font-size: 10.5px; }
+  svg .box { fill: var(--surface); stroke: currentColor; stroke-width: 1.2; }
+  svg .box-go { fill: var(--go-soft); stroke: var(--go); stroke-width: 1.4; }
+  svg .box-done { fill: var(--done-soft); stroke: var(--done); stroke-width: 1.4; }
+  svg .box-muted { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+  svg .box-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.8; }
+  svg .tag { fill: var(--code-bg); }
+  svg .edge { stroke: currentColor; stroke-width: 1.4; fill: none; }
+  svg .edge-go { stroke: var(--go); stroke-width: 1.6; fill: none; }
+  svg .edge-done { stroke: var(--done); stroke-width: 1.6; fill: none; }
+  svg .edge-muted { stroke: var(--muted); stroke-width: 1.3; fill: none; stroke-dasharray: 5 4; }
+  svg .t-go { fill: var(--go); }
+  svg .t-done { fill: var(--done); }
+  svg .t-muted { fill: var(--muted); }
+  svg .t-accent { fill: var(--accent); }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12.5px; color: var(--muted); }
+  .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; border: 1.5px solid; }
+  .legend .go i { border-color: var(--go); background: var(--go-soft); }
+  .legend .done i { border-color: var(--done); background: var(--done-soft); }
+  .legend .acc i { border-color: var(--accent); background: var(--accent-soft); }
+  .legend .mut i { border-color: var(--muted); border-style: dashed; }
+
+  /* ---------- callouts ---------- */
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 10px 14px; border-radius: 0 6px 6px 0; font-size: 14.5px; }
+  .callout.stop { border-color: var(--stop); background: var(--stop-soft); }
+  .callout.go { border-color: var(--go); background: var(--go-soft); }
+  .callout strong { font-weight: 600; }
+
+  /* ---------- tables ---------- */
+  .tbl-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  tr:last-child td { border-bottom: 0; }
+  td code { white-space: nowrap; }
+  .chip { display: inline-block; font-family: var(--mono); font-size: 11.5px; border-radius: 999px; padding: 1px 9px; border: 1px solid; white-space: nowrap; }
+  .chip.go { color: var(--go); border-color: var(--go); background: var(--go-soft); }
+  .chip.done { color: var(--done); border-color: var(--done); background: var(--done-soft); }
+  .chip.mut { color: var(--muted); border-color: var(--muted); }
+  .chip.stop { color: var(--stop); border-color: var(--stop); background: var(--stop-soft); }
+  .chip.acc { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+
+  /* ---------- trace timeline ---------- */
+  .trace { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .trace .step { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 6px; align-content: start; }
+  .trace .step.final { border-color: var(--done); }
+  .trace .step .n { font-family: var(--display); font-weight: 600; font-size: 15px; }
+  .trace .step .line { font-size: 13.5px; }
+  .trace .step .line code { font-size: 12px; }
+  .trace .step .meta { font-family: var(--mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .trace.capped { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .trace.capped .step.warn { border-color: var(--stop); background: var(--stop-soft); }
+  @media (max-width: 720px) { .trace, .trace.capped { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 440px) { .trace, .trace.capped { grid-template-columns: 1fr; } }
+
+  /* ---------- two-up cards ---------- */
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+  .card h3 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .card dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; font-size: 13.5px; }
+  .card dt { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  .card dd { margin: 0; }
+  .card.model { border-top: 3px solid var(--done); }
+  .card.fixed { border-top: 3px solid var(--muted); }
+  .card ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14.5px; }
+
+  /* ---------- annotated snippets ---------- */
+  .snip { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start; }
+  @media (max-width: 760px) { .snip { grid-template-columns: 1fr; } }
+  .snip .note { display: grid; gap: 8px; font-size: 14.5px; padding-top: 4px; }
+  .snip .note .where { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .snip .note .avoids { font-size: 13.5px; }
+
+  /* ---------- traps ---------- */
+  details.trap { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--stop); border-radius: 6px; }
+  details.trap summary { cursor: pointer; padding: 12px 14px; font-weight: 500; list-style: none; display: flex; gap: 10px; align-items: baseline; }
+  details.trap summary::-webkit-details-marker { display: none; }
+  details.trap summary::before { content: "+"; font-family: var(--mono); color: var(--stop); width: 12px; flex: none; }
+  details.trap[open] summary::before { content: "\2212"; }
+  details.trap summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+  details.trap .body { padding: 0 14px 14px 36px; display: grid; gap: 8px; font-size: 14.5px; }
+  details.trap .body .row { display: grid; grid-template-columns: 76px 1fr; gap: 10px; }
+  details.trap .body .row b { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 500; padding-top: 3px; }
+  details.trap .body .row.wrong b { color: var(--stop); }
+  details.trap .body .row.why b { color: var(--muted); }
+  details.trap .body .row.right b { color: var(--done); }
+  .trap-controls { display: flex; gap: 8px; }
+  .trap-controls button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .trap-controls button:hover { border-color: var(--accent); color: var(--accent); }
+  .trap-controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- steps map ---------- */
+  .steps { display: grid; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .steps .row { display: grid; grid-template-columns: 34px minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1.4fr); gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; align-items: baseline; }
+  .steps .row:last-child { border-bottom: 0; }
+  .steps .row.head { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .steps .row .n { font-family: var(--display); font-weight: 600; color: var(--accent); }
+  @media (max-width: 640px) { .steps .row { grid-template-columns: 30px 1fr; } .steps .row span:nth-child(n+3) { grid-column: 2; font-size: 12.5px; color: var(--muted); } }
+
+  footer { padding-top: 24px; font-size: 13px; color: var(--muted); display: grid; gap: 6px; }
+</style>
+
+<div class="wrap">
+
+<aside class="side" aria-label="Page index">
+  <div class="brand">
+    <span class="eyebrow">CCAR-F · Domain 1 · 02</span>
+    <b>Hub-and-Spoke Orchestration</b>
+  </div>
+  <nav>
+    <a href="#tldr">TL;DR</a>
+    <a href="#build">The build in six steps</a>
+    <a href="#lifecycle">Hub &amp; spoke</a>
+    <a href="#history">Context isolation</a>
+    <a href="#trace">A real run</a>
+    <a href="#anatomy">Anatomy</a>
+    <a href="#reasons">Constants</a>
+    <a href="#decisions">Hub vs. peer-to-peer</a>
+    <a href="#code">Key code</a>
+    <a href="#traps">Exam traps</a>
+  </nav>
+  <div class="files">
+    <span class="eyebrow">Sources</span>
+    <a href="notes.md">notes.md</a>
+    <a href="task.md">task.md</a>
+    <a href="coordinator.py">coordinator.py</a>
+  </div>
+</aside>
+
+<main>
+
+<header>
+  <div class="eyebrow">CCAR-F · Domain 1 · Agentic architecture and orchestration · Submodule 02 · Task Statement 1.2</div>
+  <h1>Hub-and-Spoke Orchestration</h1>
+  <p class="thesis">A coordinator sits at the centre of every multi-agent system the exam tests: it decomposes the topic, delegates to stateless subagents with fully explicit context, aggregates their results, and re-delegates gaps. Subagents research exactly what they're told and nothing more, so when a report comes back incomplete, the fault almost always traces to <strong><code>coordinator.decompose()</code></strong> — not to how hard any subagent worked.</p>
+  <div class="sources">
+    <span>notes.md</span><span>task.md</span><span>coordinator.py</span><span>logs · 2026-09-17 run</span>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<section id="tldr" class="tldr">
+  <div class="sec-head">
+    <div class="eyebrow">TL;DR</div>
+    <h2>If you remember nothing else</h2>
+  </div>
+  <div class="panel">
+    <div class="rule">Every coverage gap traces back to decompose() — never to the subagents that researched exactly what they were assigned.</div>
+    <div class="flow" aria-label="The mechanism in one line">
+      <span class="node">decompose(topic)</span><span class="arrow">→</span>
+      <span class="node">delegate(subtopic, agent)</span><span class="arrow">→</span>
+      <span class="node acc">completeness &lt; 90%?</span>
+      <span class="branch">
+        <span class="node go">yes</span><span class="arrow">→</span><span>re-delegate gaps + partial (≤3 iterations)</span>
+      </span>
+      <span class="branch">
+        <span class="node done">no</span><span class="arrow">→</span><span>return the report</span>
+      </span>
+    </div>
+    <div class="grid">
+      <ol>
+        <li><b>All traffic goes through the hub.</b> Subagents never talk to each other — every prompt, every result, every re-delegation passes through the coordinator, which is the only party with observability across the whole run.</li>
+        <li><b>Subagents are stateless and isolated.</b> A subagent has no memory of its own past calls and no access to the coordinator's history or another subagent's output unless the coordinator writes it into that call's prompt, explicitly, every time.</li>
+        <li><b>Coverage gaps are a decomposition bug, not a research bug.</b> If <code>decompose()</code> never produced "geothermal" as a subtopic, no subagent — however capable — can ever research it.</li>
+        <li><b>More subagents cannot fix narrow decomposition.</b> A third or fourth subagent still only gets whatever subtopics <code>decompose()</code> handed it; the fix is broader decomposition, not more spokes.</li>
+        <li><b>Decomposition is two-phase, not one-shot.</b> Phase 1 enumerates broadly; phase 2 hands the candidate list back to the model and asks it to self-check for missing categories (this build's phase 2 caught 10 categories phase 1 missed, including fusion and OTEC).</li>
+      </ol>
+      <ol start="6">
+        <li><b>Coverage has three buckets, not two.</b> A subtopic with zero findings is a <code>gap</code>; one finding is <code>partial</code> (below <code>MIN_FINDINGS_FOR_SUBSTANTIVE_COVERAGE</code>); two or more is <code>well_covered</code> — only gaps and partials get re-delegated.</li>
+        <li><b>Refinement is a loop with a cap.</b> <code>refine_coverage()</code> keeps re-delegating gaps/partial subtopics until completeness clears 90% or the 3-iteration cap fires, whichever comes first.</li>
+        <li><b>Isolation cuts both ways.</b> Because subagents share no state, independent delegations have no cross-call dependency — <code>research()</code> fires all of them concurrently with <code>asyncio.gather</code> instead of awaiting one at a time.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="build">
+  <div class="sec-head">
+    <div class="eyebrow">The build exercise</div>
+    <h2>Six steps, one script</h2>
+    <p>The guide's build exercise adds the mechanism in six ordered steps. Each one lands in a specific place in <code>coordinator.py</code> and is covered by a figure or panel further down.</p>
+  </div>
+  <div class="steps">
+    <div class="row head"><span>#</span><span>Step</span><span>Where it lives</span><span>See</span></div>
+    <div class="row"><span class="n">1</span><span>Coordinator hub + subagent definitions</span><span><code>coordinator.py</code> 78–111</span><span>Hub &amp; spoke</span></div>
+    <div class="row"><span class="n">2</span><span>Two-phase broad decomposition</span><span><code>coordinator.py</code> 128–180</span><span>TL;DR</span></div>
+    <div class="row"><span class="n">3</span><span>Delegate with explicit context passing</span><span><code>coordinator.py</code> 182–243</span><span>Context isolation</span></div>
+    <div class="row"><span class="n">4</span><span>Aggregate results, evaluate coverage</span><span><code>coordinator.py</code> 245–287</span><span>Constants</span></div>
+    <div class="row"><span class="n">5</span><span>Iterative refinement loop</span><span><code>coordinator.py</code> 317–365</span><span>A real run</span></div>
+    <div class="row"><span class="n">6</span><span>Acceptance test + failure-tracing diagnostic</span><span><code>coordinator.py</code> 404–514</span><span>Hub vs. peer-to-peer</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="lifecycle">
+  <div class="sec-head">
+    <div class="eyebrow">Figure 1</div>
+    <h2>Every edge touches the coordinator</h2>
+    <p>Two subagent types sit around one hub. The hub is the only party that decomposes, sees both types' output, and decides whether to loop back for more.</p>
+  </div>
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 960 420" role="img" aria-label="A coordinator decomposes a topic, delegates to two subagent types over the hub, aggregates their findings, and loops back to re-delegate gaps; the two subagent types never exchange information directly.">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+        <marker id="arr-go" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--go)"/></marker>
+        <marker id="arr-done" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--done)"/></marker>
+        <marker id="arr-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker>
+      </defs>
+
+      <!-- input -->
+      <rect class="box" x="40" y="188" width="150" height="48" rx="6"/>
+      <text x="115" y="208" text-anchor="middle">topic</text>
+      <text class="tiny t-muted" x="115" y="225" text-anchor="middle">coordinator input</text>
+      <line class="edge" x1="190" y1="212" x2="376" y2="212" marker-end="url(#arr)"/>
+      <text class="mono tiny t-muted" x="283" y="202" text-anchor="middle">decompose()</text>
+
+      <!-- hub -->
+      <rect class="box-accent" x="380" y="176" width="200" height="64" rx="8"/>
+      <text x="480" y="198" text-anchor="middle" font-weight="500">Coordinator</text>
+      <text class="tiny t-muted" x="480" y="213" text-anchor="middle">decompose → delegate</text>
+      <text class="tiny t-muted" x="480" y="228" text-anchor="middle">aggregate → refine</text>
+
+      <!-- output -->
+      <line class="edge-done" x1="580" y1="208" x2="726" y2="208" marker-end="url(#arr-done)"/>
+      <text class="mono tiny t-done" x="653" y="198" text-anchor="middle">sections[]</text>
+      <rect class="box-done" x="730" y="176" width="220" height="64" rx="8"/>
+      <text x="840" y="198" text-anchor="middle">aggregate</text>
+      <text class="mono" x="840" y="213" text-anchor="middle">evaluate_coverage()</text>
+      <text class="tiny t-muted" x="840" y="228" text-anchor="middle">well_covered / partial / gaps</text>
+
+      <!-- refinement loop-back -->
+      <path class="edge-go" d="M840 240 V300 H480 V244" marker-end="url(#arr-go)"/>
+      <text class="tiny t-go" x="660" y="292" text-anchor="middle">re-delegate gaps + partial</text>
+      <text class="tiny t-go" x="660" y="305" text-anchor="middle">below 90% · up to 3 iterations</text>
+
+      <!-- top spoke: web search -->
+      <rect class="box" x="380" y="40" width="200" height="48" rx="6"/>
+      <text x="480" y="60" text-anchor="middle">Web search subagent</text>
+      <text class="tiny t-muted" x="480" y="77" text-anchor="middle">fresh context each call</text>
+      <line class="edge-go" x1="430" y1="176" x2="430" y2="92" marker-end="url(#arr-go)"/>
+      <text class="tiny t-go" x="400" y="135" text-anchor="end">subtopic + goal</text>
+      <line class="edge-done" x1="470" y1="88" x2="470" y2="172" marker-end="url(#arr-done)"/>
+      <text class="tiny t-done" x="500" y="135" text-anchor="start">findings JSON</text>
+
+      <!-- bottom spoke: doc analysis -->
+      <rect class="box" x="380" y="356" width="200" height="48" rx="6"/>
+      <text x="480" y="376" text-anchor="middle">Doc analysis subagent</text>
+      <text class="tiny t-muted" x="480" y="393" text-anchor="middle">fresh context each call</text>
+      <line class="edge-go" x1="430" y1="240" x2="430" y2="352" marker-end="url(#arr-go)"/>
+      <text class="tiny t-go" x="400" y="300" text-anchor="end">subtopic + goal</text>
+      <line class="edge-done" x1="470" y1="356" x2="470" y2="244" marker-end="url(#arr-done)"/>
+      <text class="tiny t-done" x="500" y="300" text-anchor="start">findings JSON</text>
+
+      <!-- forbidden direct edge -->
+      <path class="edge-muted" d="M580 64 C 680 64, 680 380, 580 380"/>
+      <text class="tiny t-muted" x="690" y="212" text-anchor="middle">no direct edge</text>
+      <text class="tiny t-muted" x="690" y="227" text-anchor="middle">never</text>
+    </svg>
+    </div>
+    <div class="legend">
+      <span class="acc"><i></i>the central hub</span>
+      <span class="go"><i></i>prompt + explicit context, outbound</span>
+      <span class="done"><i></i>findings, inbound</span>
+      <span class="mut"><i></i>forbidden spoke-to-spoke edge</span>
+    </div>
+    <figcaption>Both subagent types only ever exchange messages with the coordinator; the dashed line on the right is the edge that never exists.</figcaption>
+  </figure>
+  <div class="callout">
+    <strong>All communication is centralised.</strong> Notes.md's three reasons — observability, consistent error handling, controlled information flow — all depend on the coordinator being the only party that ever sees both sides of a hand-off.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="history">
+  <div class="sec-head">
+    <div class="eyebrow">Figure 2</div>
+    <h2>What a subagent's prompt actually contains</h2>
+    <p>Reconstructed from the Step 5 demo in coordinator.log: the moment just before <code>refine_coverage()</code> re-delegates "Nuclear Fusion Energy" after its first pass came back empty.</p>
+  </div>
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1040 300" role="img" aria-label="The coordinator holds the full topic, both subtopics, both sections and the overall coverage report; the subagent's prompt for one re-delegation contains only its own subtopic, the broad goal string, and that one subtopic's prior findings.">
+      <text class="mono tiny t-muted" x="20" y="20">coordinator holds (research())</text>
+      <text class="mono tiny t-muted" x="540" y="20">subagent's actual prompt (delegate_to_subagent())</text>
+      <line class="edge-muted" x1="520" y1="10" x2="520" y2="290"/>
+
+      <!-- left: coordinator state -->
+      <rect class="box" x="20" y="36" width="480" height="44" rx="5"/>
+      <rect class="tag" x="26" y="50" width="66" height="16" rx="3"/>
+      <text class="tiny" x="59" y="62" text-anchor="middle">topic</text>
+      <text class="mono" x="102" y="63">renewable energy technologies</text>
+
+      <rect class="box" x="20" y="88" width="480" height="44" rx="5"/>
+      <rect class="tag" x="26" y="102" width="66" height="16" rx="3"/>
+      <text class="tiny" x="59" y="114" text-anchor="middle">subtopics</text>
+      <text class="mono" x="102" y="115">2: Nuclear Fusion Energy, Solar Photovoltaic</text>
+
+      <rect class="box" x="20" y="140" width="480" height="44" rx="5"/>
+      <rect class="tag" x="26" y="154" width="66" height="16" rx="3"/>
+      <text class="tiny" x="59" y="166" text-anchor="middle">sections</text>
+      <text class="mono" x="102" y="167">2 findings so far: Fusion 0 · Solar 2</text>
+
+      <rect class="box" x="20" y="192" width="480" height="44" rx="5"/>
+      <rect class="tag" x="26" y="206" width="66" height="16" rx="3"/>
+      <text class="tiny" x="59" y="218" text-anchor="middle">coverage</text>
+      <text class="mono" x="102" y="219">well_covered 1 · gaps 1 · completeness 50%</text>
+
+      <!-- right: subagent's isolated prompt -->
+      <rect class="box-accent" x="540" y="36" width="480" height="44" rx="5"/>
+      <rect class="tag" x="546" y="50" width="66" height="16" rx="3"/>
+      <text class="tiny" x="579" y="62" text-anchor="middle">subtopic</text>
+      <text class="mono" x="622" y="63">Nuclear Fusion Energy</text>
+
+      <rect class="box" x="540" y="88" width="480" height="44" rx="5"/>
+      <rect class="tag" x="546" y="102" width="66" height="16" rx="3"/>
+      <text class="tiny" x="579" y="114" text-anchor="middle">goal</text>
+      <text class="mono" x="622" y="115">renewable energy technologies</text>
+
+      <rect class="box" x="540" y="140" width="480" height="48" rx="5"/>
+      <rect class="tag" x="546" y="154" width="66" height="16" rx="3"/>
+      <text class="tiny" x="579" y="166" text-anchor="middle">prior</text>
+      <text class="tiny" x="622" y="160">A previous attempt on this subtopic returned</text>
+      <text class="tiny" x="622" y="177">ZERO findings — try a different angle</text>
+
+      <rect class="box-muted" x="540" y="200" width="480" height="64" rx="5" stroke-dasharray="5 4"/>
+      <rect class="tag" x="546" y="214" width="66" height="16" rx="3"/>
+      <text class="tiny" x="579" y="226" text-anchor="middle">isolation</text>
+      <text class="tiny t-muted" x="622" y="222">does NOT see:</text>
+      <text class="tiny t-muted" x="622" y="237">the Solar findings above</text>
+      <text class="tiny t-muted" x="622" y="256">or the other subtopic's coverage</text>
+    </svg>
+    </div>
+    <div class="legend">
+      <span class="acc"><i></i>what this one call is told</span>
+      <span class="mut"><i></i>what this call never receives</span>
+    </div>
+    <figcaption>Even mid-refinement, on the coordinator's own topic, the subagent's prompt carries only its own subtopic, the broad goal, and its own prior findings — nothing from the other subtopic or the overall coverage state.</figcaption>
+  </figure>
+  <div class="callout go">
+    <strong>No shared store, ever.</strong> If the synthesis or write-up step needs something a subagent found, the coordinator has to copy it into the next prompt by hand — there is no "look it up later."
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="trace">
+  <div class="sec-head">
+    <div class="eyebrow">From the log · coordinator.log · 2026-09-17 19:40:35–19:40:58</div>
+    <h2>A real run, stage by stage</h2>
+    <p>Prompt: <em>"renewable energy technologies"</em>. Full pipeline: <code>research()</code> called once, coordinator model <code>claude-haiku-4-5-20251001</code> throughout.</p>
+  </div>
+  <div class="trace">
+    <div class="step">
+      <div class="n">Decompose · Phase 1</div>
+      <span class="chip go">end_turn</span>
+      <div class="line">Enumerate ALL major subtopics, no narrowing yet.</div>
+      <div class="line">18 candidates back (solar, wind, hydro, geothermal, biomass, tidal, storage, grid, hydrogen, CSP, …).</div>
+      <div class="meta">2.05s · in 101 · out 194 tok</div>
+    </div>
+    <div class="step">
+      <div class="n">Decompose · Phase 2</div>
+      <span class="chip go">end_turn</span>
+      <div class="line">Hand the 18 candidates back, ask the model to self-check for missing categories.</div>
+      <div class="line">28 final subtopics — 10 added, including nuclear fusion, OTEC, enhanced geothermal, algae biofuels.</div>
+      <div class="meta">2.16s · in 338 · out 314 tok</div>
+    </div>
+    <div class="step">
+      <div class="n">Delegate ×28</div>
+      <span class="chip acc">concurrent</span>
+      <div class="line"><code>asyncio.gather</code> round-robins 28 subtopics across the 2 subagent types.</div>
+      <div class="line">Each call returns a JSON object with 5–8 sourced findings and a confidence level.</div>
+      <div class="meta">~13s wall · ~150 in / ~600 out tok per call</div>
+    </div>
+    <div class="step final">
+      <div class="n">Evaluate coverage</div>
+      <span class="chip done">100%</span>
+      <div class="line">Compare the 28 assigned subtopics against the 28 returned sections.</div>
+      <div class="line">well_covered 28 · partial 0 · gaps 0 → 0 refinement iterations needed.</div>
+      <div class="meta">total run 22.82s</div>
+    </div>
+  </div>
+
+  <h3>Contrast: the refinement loop actually firing</h3>
+  <p class="small muted">The full pipeline above hit 100% on the first pass, so it never exercises the loop. This run's Step 5 demo (coordinator.py:459–490) manufactures a gap on purpose to prove the mechanics, and it's a real API call, not a stub.</p>
+  <div class="trace capped">
+    <div class="step">
+      <div class="n">Initial pass</div>
+      <span class="chip go">50%</span>
+      <div class="line">2 subtopics: Solar PV has 2 findings (well-covered), Nuclear Fusion has 0 (gap).</div>
+    </div>
+    <div class="step warn">
+      <div class="n">Gap flagged</div>
+      <span class="chip stop">re-delegate</span>
+      <div class="line">"Nuclear Fusion Energy" enters <code>coverage["gaps"]</code>, targeted for iteration 1.</div>
+    </div>
+    <div class="step final">
+      <div class="n">After iteration 1</div>
+      <span class="chip done">100%</span>
+      <div class="line">Same subagent, same model, re-prompted with "a previous attempt returned ZERO findings" — comes back with 6 sourced findings.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="anatomy">
+  <div class="sec-head">
+    <div class="eyebrow">Anatomy</div>
+    <h2>What goes in, what comes back</h2>
+    <p>Two shapes carry the exam vocabulary: the object one subagent call returns, and the coverage report the coordinator computes from a set of them.</p>
+  </div>
+  <div class="two">
+    <div class="card">
+      <h3>Subagent result <span class="chip mut">delegate_to_subagent()</span></h3>
+<pre><code>{
+  <span class="s">"agent"</span>: <span class="s">"web_search_agent"</span>,
+  <span class="hl"><span class="s">"subtopic"</span>: <span class="s">"Nuclear Fusion Energy"</span>,  <span class="c"># forced by the coordinator</span></span>
+  <span class="s">"findings"</span>: [
+    {<span class="s">"fact"</span>: <span class="s">"NIF achieved fusion ignition in Dec 2022..."</span>,
+     <span class="s">"source_url"</span>: <span class="s">"https://www.energy.gov/..."</span>,
+     <span class="s">"confidence"</span>: <span class="s">"high"</span>},
+    <span class="c">// + 5 more findings</span>
+  ]
+}</code></pre>
+      <dl>
+        <dt>agent</dt><dd>which of the 2 subagent types produced this — a log/tracing field, never used for matching.</dd>
+        <dt>subtopic</dt><dd>overwritten with the coordinator's own value at coordinator.py:242, so <code>evaluate_coverage</code>'s exact-string lookup can never drift from what a subagent echoes back.</dd>
+        <dt>findings</dt><dd>its length is the only thing <code>evaluate_coverage</code> reads to decide well_covered / partial / gap.</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <h3>Coverage report <span class="chip mut">refine_coverage()</span></h3>
+<pre><code>{
+  <span class="s">"well_covered"</span>: [<span class="s">"Nuclear Fusion Energy"</span>,
+                   <span class="s">"Solar Photovoltaic Technology"</span>],
+  <span class="s">"partial"</span>: [],
+  <span class="s">"gaps"</span>: [],
+  <span class="hl"><span class="s">"completeness"</span>: <span class="s">1.0</span>  <span class="c"># well_covered / total subtopics</span></span>
+}</code></pre>
+      <dl>
+        <dt>well_covered</dt><dd>≥ 2 findings (<code>MIN_FINDINGS_FOR_SUBSTANTIVE_COVERAGE</code>) — done, never re-delegated.</dd>
+        <dt>gaps</dt><dd>0 findings — first in line for the next refinement iteration.</dd>
+        <dt>completeness</dt><dd>the single number <code>refine_coverage()</code>'s <code>while</code> loop checks against the 90% threshold.</dd>
+      </dl>
+      <p class="small muted">This is the actual object logged after iteration 1 of the Step 5 demo — the moment the manufactured gap closed.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="reasons">
+  <div class="sec-head">
+    <div class="eyebrow">Reference</div>
+    <h2>Every constant, and what breaks if you change it</h2>
+    <p>Two of these are exam-tested minimums; the rest are this build's implementation choices for enforcing the concept.</p>
+  </div>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Constant / value</th><th>Scope</th><th>What it enforces</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td><code>≥ 5 subtopics</code></td><td><span class="chip go">exam</span></td><td>task.md step 2's breadth floor ("at least 5 distinct subtopics")</td><td>below it, <code>decompose()</code> logs "likely a narrow decomposition failure"</td></tr>
+      <tr><td><code>2 subagent types</code></td><td><span class="chip go">exam</span></td><td>Responsibility #2, research scope partitioning across distinct source types</td><td>round-robin (<code>i % len(self.subagents)</code>) spreads subtopics across both, never duplicating a source type</td></tr>
+      <tr><td><code>COMPLETENESS_THRESHOLD = 0.9</code></td><td><span class="chip mut">production</span></td><td><code>refine_coverage()</code>'s exit gate</td><td>below 90%, the loop keeps re-delegating gaps and partials</td></tr>
+      <tr><td><code>MAX_REFINEMENT_ITERATIONS = 3</code></td><td><span class="chip mut">production</span></td><td>the iteration cap task.md step 5 calls out ("prevents infinite loops")</td><td>loop exits anyway at 3 and logs a warning listing the remaining gaps</td></tr>
+      <tr><td><code>MIN_FINDINGS_FOR_SUBSTANTIVE_COVERAGE = 2</code></td><td><span class="chip mut">production</span></td><td>splits <code>well_covered</code> from <code>partial</code></td><td>a subtopic with exactly 1 finding still counts as a refinement target</td></tr>
+      <tr><td><code>COORDINATOR_MODEL = claude-haiku-4-5-20251001</code></td><td><span class="chip mut">production</span></td><td>the model every coordinator and subagent call uses in this build</td><td>swapping this is a cost/quality choice — the exam does not test model selection here</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small muted">The two exam-scoped rows are the ones a scenario question can test directly; the rest are this exercise's specific thresholds for making the concept observable.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="decisions">
+  <div class="sec-head">
+    <div class="eyebrow">Concept</div>
+    <h2>Hub-mediated hand-off vs. direct peer messaging</h2>
+    <p>The exam's one comparison for this topic: every "more efficient" alternative to routing through the coordinator is the wrong answer.</p>
+  </div>
+  <div class="two">
+    <div class="card model">
+      <h3>Hub-and-spoke <span class="chip done">exam default</span></h3>
+      <ul>
+        <li>The coordinator alone gets observability, consistent error handling, and controlled information flow — notes.md's three named reasons for centralisation.</li>
+        <li>Subagents never see each other's prompts or results unless the coordinator explicitly re-includes them (<code>_summarize_existing_section</code>, coordinator.py:289–315).</li>
+        <li>In this build: <code>delegate_to_subagent()</code> is the only function any subagent's output ever passes through on its way to becoming part of another prompt.</li>
+      </ul>
+    </div>
+    <div class="card fixed">
+      <h3>Direct subagent-to-subagent messaging <span class="chip mut">always wrong on the exam</span></h3>
+      <ul>
+        <li>Sounds like an efficiency win — skip the round-trip through the hub — which is exactly the framing Exam Trap 3 is built to catch.</li>
+        <li><strong>The exception worth memorising:</strong> current Claude Code lets a subagent spawn its own child subagents (nested parent-child delegation) — but that is still hub-mediated, top-down delegation, never a horizontal peer link. The exam's "never, for any reason" is about peer-to-peer messaging, and that stays wrong regardless.</li>
+        <li>Cross-reference: notes.md's "Current State" note under Hub-and-Spoke Architecture.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="code">
+  <div class="sec-head">
+    <div class="eyebrow">The concept-to-code bridge</div>
+    <h2>The five pieces of code that matter</h2>
+    <p>Everything else in <code>coordinator.py</code> is plumbing: env loading, logging, timing. These excerpts are what the exam tests, each next to the trap or concept it connects to.</p>
+  </div>
+
+  <div class="snip">
+<pre><code><span class="c"># --- Phase 1: broad enumeration ---</span>
+enumerate_prompt = (
+    <span class="k">f</span><span class="s">"List ALL major subtopics for: {topic}. Ensure comprehensive "</span>
+    <span class="k">f</span><span class="s">"breadth across every major subcategory of this subject - "</span>
+    <span class="k">f</span><span class="s">"missing an entire category is a critical failure. Include at "</span>
+    <span class="k">f</span><span class="s">"least 5 distinct subtopics. Return ONLY a JSON array of short "</span>
+    <span class="k">f</span><span class="s">"subtopic strings, no other text."</span>
+)
+candidate_subtopics = <span class="k">await</span> self._ask_for_subtopics(enumerate_prompt)</code></pre>
+    <div class="note">
+      <div class="where">coordinator.py 143–151 · task step 2</div>
+      <div><strong>Generates breadth before narrowing.</strong> The prompt explicitly frames a missing category as a critical failure, so the model over-generates rather than converging early.</div>
+      <div class="avoids"><span class="chip stop">avoids trap 1 &amp; 4</span> narrow decomposition, and the "add more subagents" non-fix</div>
+    </div>
+  </div>
+
+  <div class="snip">
+<pre><code>prior_findings_text = (
+    prior_findings
+    <span class="k">if</span> prior_findings
+    <span class="k">else</span> <span class="s">"None yet - this is the first research pass for this subtopic."</span>
+)
+prompt = (
+    <span class="k">f</span><span class="s">"Research subtopic: {subtopic}\n"</span>
+    <span class="k">f</span><span class="s">"Broader research goal: {research_goal}\n"</span>
+    <span class="k">f</span><span class="s">"Prior findings relevant to this subtopic: {prior_findings_text}\n\n"</span>
+    <span class="k">f</span><span class="s">"Return structured findings as a JSON object with this exact "</span>
+    <span class="k">f</span><span class="s">'shape: {{"subtopic": string, "findings": [{{"fact": string, '</span>
+    <span class="k">f</span><span class="s">'"source_url": string, "confidence": "high" | "medium" | "low"}}]}}. '</span>
+    <span class="k">f</span><span class="s">"Return ONLY the JSON object, no other text."</span>
+)</code></pre>
+    <div class="note">
+      <div class="where">coordinator.py 204–217 · task step 3</div>
+      <div><strong>Every fact the subagent needs is spelled out here.</strong> Subtopic, goal, and prior findings are all written into this one prompt — there is nowhere else the subagent could get them from.</div>
+      <div class="avoids"><span class="chip stop">avoids trap 2</span> assuming subagents share memory or inherit context</div>
+    </div>
+  </div>
+
+  <div class="snip">
+<pre><code>well_covered, partial, gaps = [], [], []
+<span class="k">for</span> subtopic <span class="k">in</span> subtopics:
+    count = finding_counts.get(subtopic, <span class="s">0</span>)
+    <span class="k">if</span> count == <span class="s">0</span>:
+        gaps.append(subtopic)
+    <span class="k">elif</span> count < MIN_FINDINGS_FOR_SUBSTANTIVE_COVERAGE:
+        partial.append(subtopic)
+    <span class="k">else</span>:
+        well_covered.append(subtopic)
+
+completeness = len(well_covered) / len(subtopics) <span class="k">if</span> subtopics <span class="k">else</span> <span class="s">0.0</span>
+<span class="k">return</span> {
+    <span class="s">"well_covered"</span>: well_covered,
+    <span class="s">"partial"</span>: partial,
+    <span class="s">"gaps"</span>: gaps,
+    <span class="s">"completeness"</span>: completeness,
+}</code></pre>
+    <div class="note">
+      <div class="where">coordinator.py 271–287 · task step 4</div>
+      <div><strong>Assigned vs. returned, compared by the hub.</strong> Only the coordinator sees both the original subtopic list and every section that came back, so only it can compute this.</div>
+      <div class="avoids"><span class="chip stop">avoids trap 1</span> blaming a subagent for a gap the coordinator never assigned it</div>
+    </div>
+  </div>
+
+  <div class="snip">
+<pre><code><span class="k">while</span> coverage[<span class="s">"completeness"</span>] < COMPLETENESS_THRESHOLD <span class="k">and</span> iteration < MAX_REFINEMENT_ITERATIONS:
+    iteration += <span class="s">1</span>
+    targets = coverage[<span class="s">"gaps"</span>] + coverage[<span class="s">"partial"</span>]
+    logger.info(
+        <span class="k">f</span><span class="s">"Refinement iteration {iteration}: completeness "</span>
+        <span class="k">f</span><span class="s">"{coverage['completeness']:.0%} < {COMPLETENESS_THRESHOLD:.0%} threshold - "</span>
+        <span class="k">f</span><span class="s">"re-delegating {len(targets)} subtopic(s): {targets}"</span>
+    )
+
+    redelegations = [
+        self.delegate_to_subagent(
+            self.subagents[i % len(self.subagents)],
+            subtopic,
+            topic,
+            prior_findings=self._summarize_existing_section(subtopic, sections),
+        )
+        <span class="k">for</span> i, subtopic <span class="k">in</span> enumerate(targets)
+    ]
+    new_sections = list(<span class="k">await</span> asyncio.gather(*redelegations))</code></pre>
+    <div class="note">
+      <div class="where">coordinator.py 331–349 · task step 5</div>
+      <div><strong>Only gaps and partials get re-delegated.</strong> Well-covered subtopics never re-enter the loop, so cost scales with what is actually missing, not with the topic's total breadth.</div>
+      <div class="avoids"><span class="chip stop">avoids an unbounded loop</span> the iteration cap is checked in the same <code>while</code> condition as the threshold</div>
+    </div>
+  </div>
+
+  <div class="snip">
+<pre><code>delegations = [
+    self.delegate_to_subagent(self.subagents[i % len(self.subagents)], subtopic, topic)
+    <span class="k">for</span> i, subtopic <span class="k">in</span> enumerate(subtopics)
+]
+logger.info(<span class="k">f</span><span class="s">"Delegating {len(delegations)} subtopic(s) across {len(self.subagents)} subagent(s)"</span>)
+sections = list(<span class="k">await</span> asyncio.gather(*delegations))</code></pre>
+    <div class="note">
+      <div class="where">coordinator.py 383–388 · task step 3</div>
+      <div><strong>Isolation cuts both ways.</strong> Because no subagent call depends on another's result, all 28 delegations in the real run fired concurrently instead of one at a time.</div>
+      <div class="avoids"><span class="chip stop">avoids trap 3</span> concurrency here is safe precisely because there is no direct subagent-to-subagent edge to race</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="traps">
+  <div class="sec-head">
+    <div class="eyebrow">Exam traps</div>
+    <h2>Four traps, one distractor</h2>
+    <p>Each card is a wrong answer the exam will offer you, why it fails, and what the correct answer looks like. Open them one at a time and try to recall the "why" before reading it.</p>
+  </div>
+  <div class="trap-controls">
+    <button type="button" id="traps-open">Open all</button>
+    <button type="button" id="traps-close">Close all</button>
+  </div>
+
+  <details class="trap">
+    <summary>Trap 1 · Blaming the subagent for a coverage gap</summary>
+    <div class="body">
+      <div class="row wrong"><b>Wrong</b><span>Conclude the web-search or doc-analysis subagent did a poor job when the final report misses an entire category, like geothermal or tidal energy.</span></div>
+      <div class="row why"><b>Why</b><span>Each subagent only researches the subtopic(s) it was assigned (delegate_to_subagent, coordinator.py:182–243). If decompose() never produced that subtopic, no subagent ever saw it — Figure 1's "delegate" edge only ever carries what was decomposed.</span></div>
+      <div class="row right"><b>Right</b><span>Trace the gap to decompose()'s output first — verify_final_coverage (coordinator.py:415–450) does exactly this. Only blame delegation/context passing if the subtopic was assigned but its section still came back with zero findings.</span></div>
+    </div>
+  </details>
+
+  <details class="trap">
+    <summary>Trap 2 · Assuming subagents share memory or inherit context</summary>
+    <div class="body">
+      <div class="row wrong"><b>Wrong</b><span>Expect the doc-analysis subagent to "already know" what the web-search subagent found, or that a second call to the same subagent remembers the first.</span></div>
+      <div class="row why"><b>Why</b><span>Subagent isolation (Figure 2) means every prompt starts blank. The coordinator is the only thing holding sections[] across calls — nothing is shared automatically.</span></div>
+      <div class="row right"><b>Right</b><span>Every fact a subagent needs — the subtopic, the goal, prior findings — must be written explicitly into that call's prompt (delegate_to_subagent, coordinator.py:199–217).</span></div>
+    </div>
+  </details>
+
+  <details class="trap">
+    <summary>Trap 3 · Proposing direct subagent-to-subagent communication as an efficiency fix</summary>
+    <div class="body">
+      <div class="row wrong"><b>Wrong</b><span>Suggest letting the web-search subagent hand its results straight to the doc-analysis subagent to save a round trip through the coordinator.</span></div>
+      <div class="row why"><b>Why</b><span>Direct communication breaks the three things centralisation buys: observability, consistent error handling, controlled information flow (Figure 1's dashed "never" edge).</span></div>
+      <div class="row right"><b>Right</b><span>All hand-offs stay coordinator-mediated, even when it costs an extra round trip. Efficiency never overrides the architecture on this exam.</span></div>
+    </div>
+  </details>
+
+  <details class="trap">
+    <summary>Trap 4 · Adding more subagents to fix a narrow decomposition</summary>
+    <div class="body">
+      <div class="row wrong"><b>Wrong</b><span>When renewable-energy coverage is missing geothermal, tidal, biomass and fusion, propose a third or fourth subagent to cover more ground.</span></div>
+      <div class="row why"><b>Why</b><span>A new subagent still only gets whatever subtopics decompose() assigns it. More spokes on a hub with narrow output changes nothing.</span></div>
+      <div class="row right"><b>Right</b><span>Fix decompose()'s breadth — the two-phase enumerate-then-validate pattern (coordinator.py:128–180) is built for exactly this, and Step 6's acceptance test exists to catch it if it regresses.</span></div>
+    </div>
+  </details>
+
+  <details class="trap">
+    <summary>Distractor · The subagent just needed a better prompt or a stronger model</summary>
+    <div class="body">
+      <div class="row wrong"><b>Wrong</b><span>See the Step 5 demo's Nuclear Fusion Energy gap (0 findings on the first pass) and conclude the subagent's system prompt was too weak or the model too small.</span></div>
+      <div class="row why"><b>Why</b><span>The same subagent, same model, same system prompt returned 6 substantive findings the moment refine_coverage() re-delegated it with one extra sentence of context: "a previous attempt returned ZERO findings, try a different angle" (coordinator.log, iteration 1). Nothing about the subagent's capability changed.</span></div>
+      <div class="row right"><b>Right</b><span>The fix that actually worked was re-delegation with better context, not a stronger subagent — this is the isolation principle at work, not a model-capability problem.</span></div>
+    </div>
+  </details>
+</section>
+
+<footer>
+  <div>Sources in this folder: <a href="notes.md">notes.md</a> · <a href="task.md">task.md</a> · <a href="coordinator.py">coordinator.py</a>. Run trace from <code>coordinator.log</code>, 19:40:35–19:40:58 (2026-09-17).</div>
+  <div>Guide: <a href="https://claudecertificationguide.com/">claudecertificationguide.com</a>, Domain 1, Task Statement 1.2.</div>
+</footer>
+
+</main>
+</div>
+
+<script>
+  (function () {
+    // Open / close all trap cards.
+    var traps = document.querySelectorAll('details.trap');
+    var openBtn = document.getElementById('traps-open');
+    var closeBtn = document.getElementById('traps-close');
+    if (openBtn) openBtn.addEventListener('click', function () { traps.forEach(function (d) { d.open = true; }); });
+    if (closeBtn) closeBtn.addEventListener('click', function () { traps.forEach(function (d) { d.open = false; }); });
+
+    // Highlight the index entry for the section currently in view.
+    var links = Array.prototype.slice.call(document.querySelectorAll('.side nav a'));
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+    function setActive(id) {
+      links.forEach(function (a) { a.classList.remove('active'); });
+      if (byId[id]) byId[id].classList.add('active');
+    }
+    if ('IntersectionObserver' in window) {
+      var visible = {};
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { visible[e.target.id] = e.isIntersecting ? e.boundingClientRect.top : null; });
+        var best = null;
+        Object.keys(visible).forEach(function (id) {
+          if (visible[id] === null) return;
+          if (best === null || visible[id] < visible[best]) best = id;
+        });
+        if (best) setActive(best);
+      }, { rootMargin: '-10% 0px -60% 0px', threshold: 0 });
+      document.querySelectorAll('main section[id]').forEach(function (s) { io.observe(s); });
+    }
+    setActive('tldr');
+  })();
+</script>
